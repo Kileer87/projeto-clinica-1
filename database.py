@@ -11,50 +11,32 @@ def hash_senha(senha):
 
 # --- Inicialização e Migração ---
 
+def _add_column_if_not_exists(cursor, table_name, column_name, column_type):
+    """Função auxiliar para adicionar uma coluna a uma tabela se ela não existir."""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = [col[1] for col in cursor.fetchall()]
+    if column_name not in columns:
+        print(f"Atualizando schema: Adicionando coluna '{column_name}' à tabela '{table_name}'...")
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
 def inicializar_banco_de_dados():
     """
-    Cria as tabelas se não existirem e garante que o schema da tabela 'sessoes'
-    esteja atualizado, adicionando colunas que faltam. Deve ser chamada no início do app.
+    Cria e atualiza as tabelas do banco de dados de forma segura.
+    Deve ser chamada no início da aplicação.
     """
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("PRAGMA foreign_keys = ON")
 
-        # 1. Criar tabela de pacientes
+        # --- 1. Criação das Tabelas Principais ---
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS pacientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nome_completo TEXT NOT NULL,
-            data_nascimento TEXT NOT NULL, -- Armazenado como YYYY-MM-DD
+            data_nascimento TEXT NOT NULL,
             nome_responsavel TEXT NOT NULL
         )
         """)
-
-        # Migração para adicionar a coluna de telefone do responsável, se não existir
-        cursor.execute("PRAGMA table_info(pacientes)")
-        colunas_pacientes = [coluna[1] for coluna in cursor.fetchall()]
-        if 'telefone_responsavel' not in colunas_pacientes:
-            print("Atualizando schema: Adicionando coluna 'telefone_responsavel' à tabela 'pacientes'...")
-            cursor.execute("ALTER TABLE pacientes ADD COLUMN telefone_responsavel TEXT")
-        
-        # Migração para adicionar a coluna de plano de saúde
-        if 'plano_saude_id' not in colunas_pacientes:
-            print("Atualizando schema: Adicionando coluna 'plano_saude_id' à tabela 'pacientes'...")
-            # Adicionamos a referência à tabela que será criada a seguir
-            cursor.execute("ALTER TABLE pacientes ADD COLUMN plano_saude_id INTEGER REFERENCES planos_saude(id)")
-
-        # Migração para adicionar a coluna de valor padrão da sessão
-        if 'valor_sessao_padrao' not in colunas_pacientes:
-            print("Atualizando schema: Adicionando coluna 'valor_sessao_padrao' à tabela 'pacientes'...")
-            cursor.execute("ALTER TABLE pacientes ADD COLUMN valor_sessao_padrao REAL DEFAULT 0.0")
-
-        # Migração para adicionar a coluna valor_sessao na tabela sessoes
-        cursor.execute("PRAGMA table_info(sessoes)")
-        if 'valor_sessao' not in [col[1] for col in cursor.fetchall()]:
-            cursor.execute("ALTER TABLE sessoes ADD COLUMN valor_sessao REAL DEFAULT 0.0")
-
-
-        # 2. Criar tabela de medicos
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS medicos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,68 +45,25 @@ def inicializar_banco_de_dados():
             contato TEXT
         )
         """)
-
-        # 3. Criar tabela de sessões (se não existir)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             paciente_id INTEGER NOT NULL,
-            data_sessao TEXT NOT NULL, -- Armazenado como YYYY-MM-DD            
+            data_sessao TEXT NOT NULL,
             resumo_sessao TEXT,
             FOREIGN KEY (paciente_id) REFERENCES pacientes (id) ON DELETE CASCADE
         )
         """)
- 
-        # 4. Migração e Criação da tabela de disponibilidade dos médicos
-        # Esta lógica robusta garante que a tabela sempre terá o schema mais recente.
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='disponibilidade_medico'")
-        table_exists = cursor.fetchone()
-        if table_exists:
-            # A tabela existe. Vamos verificar se ela tem o schema antigo.
-            cursor.execute("PRAGMA table_info(disponibilidade_medico)")
-            columns = [col[1] for col in cursor.fetchall()]
-            if 'dia_semana' in columns:
-                # Schema antigo detectado. Apagamos a tabela para recriá-la.
-                print("Schema antigo detectado para 'disponibilidade_medico'. Atualizando...")
-                cursor.execute("DROP TABLE disponibilidade_medico")
- 
-        # Cria a tabela (se não existir, ou se foi apagada por ser antiga)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS disponibilidade_medico (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             medico_id INTEGER NOT NULL,
-            data_disponivel TEXT NOT NULL, -- Formato YYYY-MM-DD
-            hora_inicio TEXT NOT NULL, -- Formato HH:MM
-            hora_fim TEXT NOT NULL, -- Formato HH:MM
+            data_disponivel TEXT NOT NULL,
+            hora_inicio TEXT NOT NULL,
+            hora_fim TEXT NOT NULL,
             FOREIGN KEY (medico_id) REFERENCES medicos (id) ON DELETE CASCADE
         )
         """)
-        # 5. Migração de Schema para 'sessoes'
-        cursor.execute("PRAGMA table_info(sessoes)")
-        colunas_existentes = [coluna[1] for coluna in cursor.fetchall()]
-
-        colunas_necessarias = {
-            "nivel_evolucao": "TEXT",
-            "observacoes_evolucao": "TEXT",
-            "plano_terapeutico": "TEXT",
-            "medico_id": "INTEGER", # Adiciona a coluna para referenciar o médico
-            "hora_inicio_sessao": "TEXT",
-            "hora_fim_sessao": "TEXT"
-        }
-        
-        # A coluna 'valor_sessao' foi movida para a tabela 'pacientes'.
-        # Apenas 'status_pagamento' permanece aqui.
-        colunas_financeiras = {"status_pagamento": "TEXT"}
-        if 'valor_sessao' in colunas_existentes:
-             print("Schema antigo detectado: Removendo 'valor_sessao' da tabela 'sessoes'. (Movido para 'pacientes')")
-             # SQLite não tem um DROP COLUMN simples, então esta é uma abordagem complexa que não faremos aqui. Apenas garantimos que a nova coluna não seja adicionada.
-
-        for coluna, tipo in colunas_necessarias.items():
-            if coluna not in colunas_existentes:
-                print(f"Atualizando schema: Adicionando coluna '{coluna}' à tabela 'sessoes'...")
-                cursor.execute(f"ALTER TABLE sessoes ADD COLUMN {coluna} {tipo}")
-
-        # 6. Criar tabela de prontuários
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS prontuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,18 +75,45 @@ def inicializar_banco_de_dados():
             FOREIGN KEY (paciente_id) REFERENCES pacientes (id) ON DELETE CASCADE
         )
         """)
-
-        # 7. Criar tabela de usuários
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nome_usuario TEXT NOT NULL UNIQUE,
             senha_hash TEXT NOT NULL,
-            nivel_acesso TEXT NOT NULL DEFAULT 'terapeuta' -- Ex: 'admin', 'terapeuta'
+            nivel_acesso TEXT NOT NULL DEFAULT 'terapeuta'
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS despesas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            descricao TEXT NOT NULL,
+            valor REAL NOT NULL,
+            data TEXT NOT NULL
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS planos_saude (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE
         )
         """)
 
-        # 8. Criar usuário admin padrão se não existir nenhum
+        # --- 2. Migrações de Schema (Adicionar colunas que faltam) ---
+        _add_column_if_not_exists(cursor, "pacientes", "telefone_responsavel", "TEXT")
+        _add_column_if_not_exists(cursor, "pacientes", "plano_saude_id", "INTEGER REFERENCES planos_saude(id)")
+        _add_column_if_not_exists(cursor, "pacientes", "valor_sessao_padrao", "REAL DEFAULT 0.0")
+
+        _add_column_if_not_exists(cursor, "sessoes", "nivel_evolucao", "TEXT")
+        _add_column_if_not_exists(cursor, "sessoes", "observacoes_evolucao", "TEXT")
+        _add_column_if_not_exists(cursor, "sessoes", "plano_terapeutico", "TEXT")
+        _add_column_if_not_exists(cursor, "sessoes", "medico_id", "INTEGER REFERENCES medicos(id)")
+        _add_column_if_not_exists(cursor, "sessoes", "hora_inicio_sessao", "TEXT")
+        _add_column_if_not_exists(cursor, "sessoes", "hora_fim_sessao", "TEXT")
+        _add_column_if_not_exists(cursor, "sessoes", "valor_sessao", "REAL DEFAULT 0.0")
+        _add_column_if_not_exists(cursor, "sessoes", "status_pagamento", "TEXT")
+
+        # --- 3. Dados Iniciais ---
+        # Criar usuário admin padrão
         cursor.execute("SELECT 1 FROM usuarios WHERE nivel_acesso = 'admin'")
         if not cursor.fetchone():
             nome_admin_padrao = 'admin'
@@ -162,24 +128,7 @@ def inicializar_banco_de_dados():
             print(f"  Usuário: {nome_admin_padrao}\n  Senha:   {senha_admin_padrao}")
             print("="*50)
 
-        # 9. Criar tabela de despesas
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS despesas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            descricao TEXT NOT NULL,
-            valor REAL NOT NULL,
-            data TEXT NOT NULL -- Formato YYYY-MM-DD
-        )
-        """)
-
-        # 10. Criar tabela de Planos de Saúde e popular com valores iniciais
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS planos_saude (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT NOT NULL UNIQUE
-        )
-        """)
-        # Verifica se a tabela está vazia antes de popular
+        # Popular planos de saúde
         cursor.execute("SELECT COUNT(id) FROM planos_saude")
         if cursor.fetchone()[0] == 0:
             print("Populando tabela 'planos_saude' com valores iniciais...")
@@ -188,7 +137,6 @@ def inicializar_banco_de_dados():
                 ('Amil',), ('SulAmérica Saúde',), ('NotreDame Intermédica',), ('Outro',)
             ]
             cursor.executemany("INSERT INTO planos_saude (nome) VALUES (?)", planos_iniciais)
-
 
         print("Banco de dados pronto.")
 

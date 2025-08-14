@@ -57,10 +57,10 @@ def calcular_idade(data_nasc_db):
     except (ValueError, TypeError):
         return "" # Retorna vazio se a data for inválida
 
-def _draw_wrapped_text(canvas_obj, text, x, y, max_width, style):
+def _draw_wrapped_text(canvas_obj, text, x, y, max_width, max_height, style):
     """Função auxiliar para desenhar texto com quebra de linha em um canvas do ReportLab."""
     p = Paragraph(text.replace('\n', '<br/>'), style)
-    w, h = p.wrapOn(canvas_obj, max_width, height)
+    w, h = p.wrapOn(canvas_obj, max_width, max_height)
     p.drawOn(canvas_obj, x, y - h)
     return y - h - 20  # Retorna a nova posição Y com um espaçamento
 
@@ -97,7 +97,7 @@ def gerar_relatorio_sessao_pdf(janela_pai, sessao_id):
         y_pos = height - margin
 
         # Título e Informações Gerais
-        y_pos = _draw_wrapped_text(c, "Relatório de Sessão Terapêutica", margin, y_pos, width - 2 * margin, style_h1)
+        y_pos = _draw_wrapped_text(c, "Relatório de Sessão Terapêutica", margin, y_pos, width - 2 * margin, height, style_h1)
         y_pos -= 10
         
         info_gerais = f"""
@@ -105,15 +105,15 @@ def gerar_relatorio_sessao_pdf(janela_pai, sessao_id):
             <b>Data:</b> {formatar_data_para_exibicao(sessao_data.get('data_sessao'))}<br/>
             <b>Terapeuta:</b> {sessao_data.get('medico_nome', 'N/A')}
         """
-        y_pos = _draw_wrapped_text(c, info_gerais, margin, y_pos, width - 2 * margin, style_body)
+        y_pos = _draw_wrapped_text(c, info_gerais, margin, y_pos, width - 2 * margin, height, style_body)
 
         # Seções do relatório
-        y_pos = _draw_wrapped_text(c, "<b>Resumo da Sessão:</b>", margin, y_pos, width - 2 * margin, style_h2)
-        y_pos = _draw_wrapped_text(c, sessao_data.get('resumo_sessao', 'Não informado.'), margin, y_pos, width - 2 * margin, style_body)
-        y_pos = _draw_wrapped_text(c, "<b>Observações sobre a Evolução:</b>", margin, y_pos, width - 2 * margin, style_h2)
-        y_pos = _draw_wrapped_text(c, sessao_data.get('observacoes_evolucao', 'Não informado.'), margin, y_pos, width - 2 * margin, style_body)
-        y_pos = _draw_wrapped_text(c, "<b>Plano Terapêutico:</b>", margin, y_pos, width - 2 * margin, style_h2)
-        _draw_wrapped_text(c, sessao_data.get('plano_terapeutico', 'Não informado.'), margin, y_pos, width - 2 * margin, style_body)
+        y_pos = _draw_wrapped_text(c, "<b>Resumo da Sessão:</b>", margin, y_pos, width - 2 * margin, height, style_h2)
+        y_pos = _draw_wrapped_text(c, sessao_data.get('resumo_sessao', 'Não informado.'), margin, y_pos, width - 2 * margin, height, style_body)
+        y_pos = _draw_wrapped_text(c, "<b>Observações sobre a Evolução:</b>", margin, y_pos, width - 2 * margin, height, style_h2)
+        y_pos = _draw_wrapped_text(c, sessao_data.get('observacoes_evolucao', 'Não informado.'), margin, y_pos, width - 2 * margin, height, style_body)
+        y_pos = _draw_wrapped_text(c, "<b>Plano Terapêutico:</b>", margin, y_pos, width - 2 * margin, height, style_h2)
+        _draw_wrapped_text(c, sessao_data.get('plano_terapeutico', 'Não informado.'), margin, y_pos, width - 2 * margin, height, style_body)
         
         c.save()
         messagebox.showinfo("Sucesso", f"Relatório salvo como '{nome_arquivo}'", parent=janela_pai)
@@ -496,6 +496,9 @@ def abrir_janela_agenda_geral(janela_pai):
     lbl_info = ttk.Label(cal_frame, text="Selecione uma data para ver a disponibilidade de todos os terapeutas.", font=("Helvetica", 11))
     lbl_info.pack(side='left', anchor='w')
 
+    btn_atualizar_agenda = ttk.Button(cal_frame, text="Atualizar", command=lambda: atualizar_disponibilidade_geral())
+    btn_atualizar_agenda.pack(side='right', padx=10)
+
     # --- Frame da Tabela de Disponibilidade (Abaixo) ---
     tree_frame = ttk.Frame(main_frame)
     tree_frame.pack(fill='both', expand=True)
@@ -564,6 +567,9 @@ def abrir_janela_fluxo_caixa(janela_pai):
     ttk.Label(filtro_frame, text="Até:").pack(side='left', padx=(20, 5))
     cal_fim = Calendar(filtro_frame, selectmode='day', date_pattern='dd/mm/y')
     cal_fim.pack(side='left')
+
+    btn_filtrar = ttk.Button(filtro_frame, text="Filtrar Período", command=lambda: carregar_dados_financeiros())
+    btn_filtrar.pack(side='left', padx=20)
 
     # --- Notebook com Abas (Receitas e Despesas) ---
     notebook = ttk.Notebook(main_frame)
@@ -668,7 +674,6 @@ def abrir_janela_fluxo_caixa(janela_pai):
             messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar despesa: {e}", parent=janela_financeiro)
 
     ttk.Button(add_despesa_frame, text="Adicionar", command=adicionar_nova_despesa).grid(row=0, column=6, padx=5)
-    ttk.Button(filtro_frame, text="Filtrar", command=carregar_dados_financeiros).pack(side='left', padx=20)
 
     carregar_dados_financeiros() # Carga inicial
 
@@ -1590,6 +1595,12 @@ def abrir_janela_principal():
     tree_agenda.heading('terapeuta', text='Terapeuta'); tree_agenda.column('terapeuta', width=200)
     tree_agenda.pack(fill='both', expand=True)
 
+    def atualizar_dashboard():
+        """Função que atualiza todos os componentes do dashboard."""
+        atualizar_eventos_calendario(cal)
+        atualizar_agenda_do_dia()
+        messagebox.showinfo("Atualização", "Dashboard atualizado com sucesso!", parent=root)
+
     def atualizar_eventos_calendario(calendario):
         """Busca as datas com sessões e as marca no calendário."""
         # Limpa todos os eventos antigos para não duplicar
@@ -1623,6 +1634,9 @@ def abrir_janela_principal():
     # Botão de Listar Pacientes (precisa do callback do calendário)
     btn_listar = tk.Button(left_frame, text="Listar Pacientes", font=("Helvetica", 11), command=lambda: JanelaListaPacientes(root, lambda: atualizar_eventos_calendario(cal)))
     btn_listar.pack(pady=5, fill='x')
+
+    btn_atualizar_dash = tk.Button(left_frame, text="Atualizar Dashboard", font=("Helvetica", 11), command=atualizar_dashboard)
+    btn_atualizar_dash.pack(side='bottom', pady=10, fill='x')
 
     # Carregamento inicial
     atualizar_eventos_calendario(cal)
