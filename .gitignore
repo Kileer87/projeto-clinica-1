@@ -1,9 +1,15 @@
+# Arquivos de banco de dados
+*.db
+*.sqlite3
+
 # Arquivos de cache e compilados do Python
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+*.pyo
+*.pyd
 
-# Arquivos de banco de dados do SQLite
-*.db
-*.sqlite
-*.sqlite3
+# Pastas de ambiente virtual
+.venv/
+venv/
+ENV/
+env/

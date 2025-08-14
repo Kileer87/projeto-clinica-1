@@ -345,16 +345,23 @@ def salvar_alteracoes_medico(janela_edicao, entry_nome, entry_espec, entry_conta
 
 # --- Funções para Abrir Janelas de Médicos ---
 
-def abrir_janela_cadastro_medico(janela_pai, callback_atualizar):
-    """Abre uma nova janela para o cadastro de médicos."""
-    janela_cadastro = tk.Toplevel(janela_pai)
-    janela_cadastro.title("Cadastrar Novo Médico/Terapeuta")
-    janela_cadastro.geometry("400x200")
-    janela_cadastro.resizable(True, True)
-    janela_cadastro.transient(janela_pai)
-    janela_cadastro.grab_set()
+def abrir_janela_form_medico(janela_pai, callback_atualizar, medico_id=None):
+    """Abre uma janela de formulário para CRIAR ou EDITAR um médico/terapeuta."""
+    is_edit_mode = medico_id is not None
 
-    frame = tk.Frame(janela_cadastro, padx=20, pady=20)
+    if is_edit_mode:
+        medico_data = database.buscar_medico_por_id(medico_id)
+        if not medico_data:
+            messagebox.showerror("Erro", "Médico não encontrado.", parent=janela_pai)
+            return
+    
+    janela_form = tk.Toplevel(janela_pai)
+    janela_form.title("Editar Médico/Terapeuta" if is_edit_mode else "Cadastrar Novo Médico/Terapeuta")
+    janela_form.geometry("400x200")
+    janela_form.transient(janela_pai)
+    janela_form.grab_set()
+
+    frame = tk.Frame(janela_form, padx=20, pady=20)
     frame.pack(expand=True, fill='both')
 
     tk.Label(frame, text="Nome Completo:").grid(row=0, column=0, sticky="w", pady=5)
@@ -370,29 +377,20 @@ def abrir_janela_cadastro_medico(janela_pai, callback_atualizar):
     entry_contato = tk.Entry(frame, width=40)
     entry_contato.grid(row=2, column=1, pady=5)
 
-    btn_salvar = tk.Button(frame, text="Salvar Cadastro", command=lambda: salvar_medico(janela_cadastro, entry_nome, entry_espec, entry_contato))
+    if is_edit_mode:
+        entry_nome.insert(0, medico_data.get('nome_completo', ''))
+        entry_espec.insert(0, medico_data.get('especialidade', '') or "")
+        entry_contato.insert(0, medico_data.get('contato', '') or "")
+        btn_text = "Salvar Alterações"
+        save_command = lambda: salvar_alteracoes_medico(janela_form, entry_nome, entry_espec, entry_contato, medico_id)
+    else:
+        btn_text = "Salvar Cadastro"
+        save_command = lambda: salvar_medico(janela_form, entry_nome, entry_espec, entry_contato)
+
+    btn_salvar = tk.Button(frame, text=btn_text, command=save_command)
     btn_salvar.grid(row=3, column=1, sticky="e", pady=15)
     
-    janela_pai.wait_window(janela_cadastro)
-    callback_atualizar()
-
-def abrir_janela_edicao_medico(janela_pai, medico_id, callback_atualizar):
-    medico_data = database.buscar_medico_por_id(medico_id)
-    janela_edicao = tk.Toplevel(janela_pai)
-    janela_edicao.title("Editar Médico/Terapeuta")
-    janela_edicao.geometry("400x200")
-    frame = tk.Frame(janela_edicao, padx=20, pady=20)
-    frame.pack(expand=True, fill='both')
-
-    tk.Label(frame, text="Nome Completo:").grid(row=0, column=0, sticky="w", pady=5)
-    entry_nome = tk.Entry(frame, width=40); entry_nome.grid(row=0, column=1, pady=5); entry_nome.insert(0, medico_data['nome_completo'])
-    tk.Label(frame, text="Especialidade:").grid(row=1, column=0, sticky="w", pady=5)
-    entry_espec = tk.Entry(frame, width=40); entry_espec.grid(row=1, column=1, pady=5); entry_espec.insert(0, medico_data['especialidade'] or "")
-    tk.Label(frame, text="Contato:").grid(row=2, column=0, sticky="w", pady=5)
-    entry_contato = tk.Entry(frame, width=40); entry_contato.grid(row=2, column=1, pady=5); entry_contato.insert(0, medico_data['contato'] or "")
-    btn_salvar = tk.Button(frame, text="Salvar Alterações", command=lambda: salvar_alteracoes_medico(janela_edicao, entry_nome, entry_espec, entry_contato, medico_id))
-    btn_salvar.grid(row=3, column=1, sticky="e", pady=15)
-    janela_pai.wait_window(janela_edicao)
+    janela_pai.wait_window(janela_form)
     callback_atualizar()
 
 def abrir_janela_disponibilidade(janela_pai, medico_id, medico_nome):
@@ -1467,13 +1465,13 @@ class JanelaListaMedicos(tk.Toplevel):
             messagebox.showerror("Erro", f"Erro ao carregar médicos: {e}", parent=self)
 
     def adicionar_novo(self):
-        abrir_janela_cadastro_medico(self, self.recarregar_lista)
+        abrir_janela_form_medico(self, self.recarregar_lista)
 
     def editar_selecionado(self):
         selected_item = self.tree.focus()
         if not selected_item: return
         medico_id = self.tree.item(selected_item)['values'][0]
-        abrir_janela_edicao_medico(self, medico_id, self.recarregar_lista)
+        abrir_janela_form_medico(self, self.recarregar_lista, medico_id=medico_id)
 
     def gerenciar_disponibilidade(self):
         selected_item = self.tree.focus()
@@ -1883,17 +1881,6 @@ def abrir_janela_gerenciar_planos(janela_pai):
     recarregar_lista_planos()
 
 def abrir_janela_principal():
-    """Cria e exibe a janela principal da aplicação após o login."""
-    try:
-        # Inicializa o banco de dados, criando e/ou atualizando as tabelas necessárias.
-        database.inicializar_banco_de_dados()
-    except Exception as e:
-        # Se a inicialização do DB falhar, é um erro crítico.
-        # Mostra uma mensagem de erro clara e encerra o programa.
-        root_error = tk.Tk()
-        root_error.withdraw()  # Oculta a janela raiz vazia
-        messagebox.showerror("Erro Crítico de Inicialização", f"Ocorreu um erro ao preparar o banco de dados:\n\n{e}\n\nO programa será encerrado.")
-        return # Impede que o resto do programa execute
 
     root = tk.Tk()
     root.title("Sistema de Clínica - Início")

@@ -8,10 +8,24 @@ DB_FILE = 'clinica.db'
 # --- Funções de Segurança ---
 
 def hash_senha(senha):
-    """Gera um hash SHA-256 para a senha, garantindo que não seja armazenada em texto plano."""
+    """
+    Gera um hash SHA-256 para a senha, garantindo que não seja armazenada em texto plano.
+    """
     return hashlib.sha256(senha.encode('utf-8')).hexdigest()
 
 # --- Inicialização e Migração ---
+
+def verificar_senha(senha_hash_com_salt, senha):
+    """Verifica a senha fornecida contra o hash armazenado que contém o salt."""
+    try:
+        salt_hex, hash_armazenado_hex = senha_hash_com_salt.split(':')
+        salt = bytes.fromhex(salt_hex)
+        pwdhash_novo = hashlib.pbkdf2_hmac('sha256', senha.encode('utf-8'), salt, 100000)
+        # Usa compare_digest para uma comparação segura que previne "timing attacks".
+        return hashlib.compare_digest(bytes.fromhex(hash_armazenado_hex), pwdhash_novo)
+    except (ValueError, TypeError):
+        # Retorna False se o formato do hash for inválido.
+        return False
 
 def _add_column_if_not_exists(cursor, table_name, column_name, column_type):
     """Função auxiliar para adicionar uma coluna a uma tabela se ela não existir."""
