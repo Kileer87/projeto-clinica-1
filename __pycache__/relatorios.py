@@ -2,6 +2,18 @@
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
+from tkinter import messagebox
+
+# Importe ou defina o objeto database antes de usar
+from database import database  # Certifique-se de que existe um módulo database.py com o objeto database definido
+
+def formatar_data_para_exibicao(data_str):
+    """Formata uma data no formato YYYY-MM-DD para DD/MM/YYYY."""
+    from datetime import datetime
+    try:
+        return datetime.strptime(data_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        return data_str
 
 def gerar_relatorio_sessao_pdf(sessao_id):
     """Gera um relatório em PDF para uma sessão específica."""

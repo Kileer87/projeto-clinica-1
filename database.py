@@ -1,5 +1,7 @@
 import sqlite3
 import hashlib # Para criptografar senhas
+import shutil
+import os
 
 DB_FILE = 'clinica.db'
 
@@ -564,3 +566,109 @@ def listar_planos_saude():
         cursor = conn.cursor()
         cursor.execute("SELECT id, nome FROM planos_saude ORDER BY nome")
         return [dict(row) for row in cursor.fetchall()]
+
+def adicionar_plano_saude(nome):
+    """Adiciona um novo plano de saúde. Lança ValueError se o nome já existir."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO planos_saude (nome) VALUES (?)", (nome,))
+        except sqlite3.IntegrityError:
+            raise ValueError(f"O plano de saúde '{nome}' já existe.")
+
+def excluir_plano_saude(plano_id):
+    """Exclui um plano de saúde. Lança IntegrityError se estiver em uso."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        # A restrição de chave estrangeira impedirá a exclusão se o plano estiver em uso.
+        # A exceção sqlite3.IntegrityError será capturada na UI.
+        cursor.execute("DELETE FROM planos_saude WHERE id = ?", (plano_id,))
+
+def verificar_pendencias_paciente(paciente_id):
+    """Verifica se um paciente possui sessões com pagamento pendente."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM sessoes WHERE paciente_id = ? AND status_pagamento = 'Pendente' LIMIT 1",
+            (paciente_id,)
+        )
+        return cursor.fetchone() is not None
+
+def listar_sessoes_pendentes_por_paciente(paciente_id):
+    """Retorna uma lista das sessões com pagamento pendente de um paciente."""
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, data_sessao, valor_sessao
+            FROM sessoes
+            WHERE paciente_id = ? AND status_pagamento = 'Pendente'
+            ORDER BY data_sessao
+            """,
+            (paciente_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+def marcar_todas_sessoes_como_pagas(paciente_id):
+    """Marca todas as sessões pendentes de um paciente como 'Pago'."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE sessoes SET status_pagamento = 'Pago' WHERE paciente_id = ? AND status_pagamento = 'Pendente'",
+            (paciente_id,)
+        )
+
+def listar_receitas_agrupadas_por_plano(data_inicio_db, data_fim_db):
+    """
+    Calcula o total de receitas (sessões pagas) agrupado por plano de saúde em um período.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                ps.nome as plano_nome,
+                SUM(s.valor_sessao) as total_valor
+            FROM sessoes s
+            JOIN pacientes p ON s.paciente_id = p.id
+            JOIN planos_saude ps ON p.plano_saude_id = ps.id
+            WHERE s.status_pagamento = 'Pago' AND s.data_sessao BETWEEN ? AND ?
+            GROUP BY ps.nome
+            ORDER BY total_valor DESC
+        """, (data_inicio_db, data_fim_db))
+        return [dict(row) for row in cursor.fetchall()]
+
+def listar_todas_sessoes_pendentes(termo_busca=None):
+    """
+    Retorna uma lista de todas as sessões com pagamento pendente,
+    opcionalmente filtrando pelo nome do paciente.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        query = """
+            SELECT s.id, s.data_sessao, s.valor_sessao, p.nome_completo as paciente_nome
+            FROM sessoes s
+            JOIN pacientes p ON s.paciente_id = p.id
+            WHERE s.status_pagamento = 'Pendente'
+        """
+        params = []
+        if termo_busca:
+            query += " AND lower(p.nome_completo) LIKE ?"
+            params.append(f"%{termo_busca.lower()}%")
+        query += " ORDER BY p.nome_completo, s.data_sessao"
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+def backup_database(backup_path):
+    """Copia o arquivo do banco de dados atual para o local de backup especificado."""
+    if not os.path.exists(DB_FILE):
+        raise FileNotFoundError("Arquivo do banco de dados (clinica.db) não encontrado.")
+    shutil.copyfile(DB_FILE, backup_path)
+
+def restore_database(backup_path):
+    """Restaura o banco de dados a partir de um arquivo de backup."""
+    if not os.path.exists(backup_path):
+        raise FileNotFoundError("Arquivo de backup não encontrado.")
+    shutil.copyfile(backup_path, DB_FILE)

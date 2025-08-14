@@ -120,6 +120,47 @@ def gerar_relatorio_sessao_pdf(janela_pai, sessao_id):
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível gerar o PDF: {e}", parent=janela_pai)
 
+def realizar_backup(janela_pai):
+    """Abre uma caixa de diálogo para salvar um backup do banco de dados."""
+    try:
+        # Sugere um nome de arquivo com a data e hora atuais
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        nome_arquivo_sugerido = f"backup_clinica_{timestamp}.db"
+        
+        backup_path = filedialog.asksaveasfilename(
+            title="Salvar Backup Como",
+            initialfile=nome_arquivo_sugerido,
+            defaultextension=".db",
+            filetypes=[("Arquivos de Banco de Dados", "*.db"), ("Todos os arquivos", "*.*")],
+            parent=janela_pai
+        )
+        
+        if backup_path:
+            database.backup_database(backup_path)
+            messagebox.showinfo("Backup Concluído", f"Backup salvo com sucesso em:\n{backup_path}", parent=janela_pai)
+            
+    except FileNotFoundError as e:
+        messagebox.showerror("Erro", str(e), parent=janela_pai)
+    except Exception as e:
+        messagebox.showerror("Erro de Backup", f"Ocorreu um erro inesperado ao realizar o backup:\n{e}", parent=janela_pai)
+
+def realizar_restauracao(janela_pai):
+    """Abre uma caixa de diálogo para restaurar o banco de dados a partir de um backup."""
+    aviso = "Atenção! A restauração substituirá TODOS os dados atuais por aqueles do arquivo de backup. Esta ação não pode ser desfeita.\n\nO aplicativo será fechado após a restauração. Deseja continuar?"
+    if not messagebox.askyesno("Restauração de Dados", aviso, icon='warning', parent=janela_pai):
+        return
+        
+    backup_path = filedialog.askopenfilename(title="Selecionar Arquivo de Backup para Restaurar", filetypes=[("Arquivos de Banco de Dados", "*.db"), ("Todos os arquivos", "*.*")], parent=janela_pai)
+    if backup_path:
+        try:
+            database.restore_database(backup_path)
+            messagebox.showinfo("Restauração Concluída", "O banco de dados foi restaurado com sucesso.\n\nO aplicativo será encerrado. Por favor, abra-o novamente.", parent=janela_pai)
+            janela_pai.destroy()
+        except FileNotFoundError as e:
+            messagebox.showerror("Erro", str(e), parent=janela_pai)
+        except Exception as e:
+            messagebox.showerror("Erro de Restauração", f"Ocorreu um erro inesperado ao restaurar o banco de dados:\n{e}", parent=janela_pai)
+
 def salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor):
     """Coleta os dados dos campos de entrada e salva no banco de dados."""
     nome = entry_nome.get().strip()
@@ -309,7 +350,7 @@ def abrir_janela_cadastro_medico(janela_pai, callback_atualizar):
     janela_cadastro = tk.Toplevel(janela_pai)
     janela_cadastro.title("Cadastrar Novo Médico/Terapeuta")
     janela_cadastro.geometry("400x200")
-    janela_cadastro.resizable(False, False)
+    janela_cadastro.resizable(True, True)
     janela_cadastro.transient(janela_pai)
     janela_cadastro.grab_set()
 
@@ -516,6 +557,7 @@ def abrir_janela_agenda_geral(janela_pai):
     scrollbar.grid(row=0, column=1, sticky='ns')
     tree_frame.grid_rowconfigure(0, weight=1)
     tree_frame.grid_columnconfigure(0, weight=1)
+    # The above code is original and does not use code from the referenced repository.
 
     def atualizar_disponibilidade_geral(event=None):
         """Busca e exibe a disponibilidade de todos os médicos para o dia selecionado."""
@@ -541,6 +583,167 @@ def abrir_janela_agenda_geral(janela_pai):
 
     # Carrega a disponibilidade para o dia de hoje ao abrir
     atualizar_disponibilidade_geral()
+
+def abrir_janela_relatorio_por_plano(janela_pai, data_inicio_db, data_fim_db):
+    """Abre uma janela para exibir o relatório de receitas agrupadas por plano de saúde."""
+    janela_relatorio = tk.Toplevel(janela_pai)
+    janela_relatorio.title("Relatório de Receitas por Plano de Saúde")
+    janela_relatorio.geometry("600x400")
+    janela_relatorio.transient(janela_pai)
+    janela_relatorio.grab_set()
+
+    frame_relatorio = ttk.Frame(janela_relatorio, padding=10)
+    frame_relatorio.pack(fill='both', expand=True)
+
+    periodo_str = f"Período: {formatar_data_para_exibicao(data_inicio_db)} a {formatar_data_para_exibicao(data_fim_db)}"
+    ttk.Label(frame_relatorio, text=periodo_str, font=("Helvetica", 11, "bold")).pack(pady=(0, 10))
+
+    # Treeview para mostrar o relatório
+    cols = ('plano', 'valor_total')
+    tree_relatorio = ttk.Treeview(frame_relatorio, columns=cols, show='headings')
+    tree_relatorio.heading('plano', text='Plano de Saúde')
+    tree_relatorio.heading('valor_total', text='Valor Total Recebido (R$)')
+    tree_relatorio.column('valor_total', anchor='e')
+    tree_relatorio.pack(fill='both', expand=True)
+
+    # Popula a tabela com os dados
+    try:
+        dados_agrupados = database.listar_receitas_agrupadas_por_plano(data_inicio_db, data_fim_db)
+        total_geral = 0
+        for item in dados_agrupados:
+            plano = item['plano_nome']
+            total = item['total_valor']
+            total_geral += total
+            tree_relatorio.insert("", "end", values=(plano, f"{total:.2f}"))
+        
+        # Adiciona uma linha com o total geral
+        if dados_agrupados:
+            tree_relatorio.insert("", "end", values=("", "")) # Linha separadora
+            tree_relatorio.insert("", "end", values=("TOTAL GERAL", f"{total_geral:.2f}"), tags=('total_row',))
+            tree_relatorio.tag_configure('total_row', font=('Helvetica', 10, 'bold'))
+
+    except sqlite3.Error as e:
+        messagebox.showerror("Erro de Banco de Dados", f"Não foi possível gerar o relatório: {e}", parent=janela_relatorio)
+
+def abrir_janela_pagamentos_pendentes(janela_pai, paciente_id, paciente_nome, callback_atualizar_lista):
+    """Abre uma janela para gerenciar e quitar pagamentos pendentes de um paciente."""
+    janela_pgto = tk.Toplevel(janela_pai)
+    janela_pgto.title(f"Pagamentos Pendentes - {paciente_nome}")
+    janela_pgto.geometry("500x400")
+    janela_pgto.transient(janela_pai)
+    janela_pgto.grab_set()
+
+    frame = ttk.Frame(janela_pgto, padding=10)
+    frame.pack(fill='both', expand=True)
+
+    sessoes_pendentes = database.listar_sessoes_pendentes_por_paciente(paciente_id)
+
+    if not sessoes_pendentes:
+        ttk.Label(frame, text="Este paciente não possui pagamentos pendentes.", font=("Helvetica", 11)).pack(pady=20)
+        ttk.Button(frame, text="Fechar", command=janela_pgto.destroy).pack(pady=10)
+        return
+
+    # Tabela de sessões pendentes
+    tree_frame = ttk.Frame(frame)
+    tree_frame.pack(fill='both', expand=True, pady=(0, 10))
+    cols = ('data', 'valor')
+    tree = ttk.Treeview(tree_frame, columns=cols, show='headings')
+    tree.heading('data', text='Data da Sessão'); tree.column('data', anchor='center', width=150)
+    tree.heading('valor', text='Valor (R$)'); tree.column('valor', anchor='e', width=100)
+    tree.pack(fill='both', expand=True)
+
+    total_pendente = 0
+    for sessao in sessoes_pendentes:
+        valor = sessao.get('valor_sessao', 0.0)
+        total_pendente += valor
+        tree.insert("", "end", values=(formatar_data_para_exibicao(sessao['data_sessao']), f"{valor:.2f}"))
+
+    # Frame de totais e botão de quitar
+    bottom_frame = ttk.Frame(frame)
+    bottom_frame.pack(fill='x')
+    
+    lbl_total = ttk.Label(bottom_frame, text=f"Total Pendente: R$ {total_pendente:.2f}", font=("Helvetica", 12, "bold"))
+    lbl_total.pack(side='left', pady=5)
+
+    def quitar_tudo():
+        if messagebox.askyesno("Confirmar", f"Deseja marcar todas as {len(sessoes_pendentes)} sessões pendentes como 'Pagas'?", parent=janela_pgto):
+            try:
+                database.marcar_todas_sessoes_como_pagas(paciente_id)
+                messagebox.showinfo("Sucesso", "Todos os pagamentos pendentes foram quitados.", parent=janela_pgto)
+                janela_pgto.destroy()
+                callback_atualizar_lista() # Atualiza a lista de pacientes
+            except sqlite3.Error as e:
+                messagebox.showerror("Erro de Banco de Dados", f"Não foi possível atualizar os pagamentos: {e}", parent=janela_pgto)
+
+    ttk.Button(bottom_frame, text="Marcar Todas como Pagas", command=quitar_tudo).pack(side='right', pady=5)
+
+def abrir_janela_controle_pagamentos(janela_pai):
+    """Abre uma janela centralizada para gerenciar todos os pagamentos pendentes."""
+    janela_ctrl_pgto = tk.Toplevel(janela_pai)
+    janela_ctrl_pgto.title("Controle de Pagamentos Pendentes")
+    janela_ctrl_pgto.geometry("700x500")
+    janela_ctrl_pgto.transient(janela_pai)
+    janela_ctrl_pgto.grab_set()
+
+    frame = ttk.Frame(janela_ctrl_pgto, padding=10)
+    frame.pack(fill='both', expand=True)
+
+    # --- Frame de Busca ---
+    busca_frame = ttk.Frame(frame)
+    busca_frame.pack(fill='x', pady=(0, 10))
+    ttk.Label(busca_frame, text="Buscar por Paciente:").pack(side='left', padx=(0, 5))
+    entry_busca = ttk.Entry(busca_frame, width=40)
+    entry_busca.pack(side='left', expand=True, fill='x')
+    
+    # --- Tabela de Sessões Pendentes ---
+    tree_frame = ttk.Frame(frame)
+    tree_frame.pack(fill='both', expand=True)
+    cols = ('ID', 'Paciente', 'Data da Sessão', 'Valor')
+    tree = ttk.Treeview(tree_frame, columns=cols, show='headings', selectmode='extended')
+    tree.heading('ID', text='ID'); tree.column('ID', width=0, stretch=tk.NO) # Oculto
+    tree.heading('Paciente', text='Paciente'); tree.column('Paciente', width=300)
+    tree.heading('Data da Sessão', text='Data da Sessão'); tree.column('Data da Sessão', width=150, anchor='center')
+    tree.heading('Valor', text='Valor (R$)'); tree.column('Valor', width=100, anchor='e')
+    tree.pack(side='left', fill='both', expand=True)
+    scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=tree.yview)
+    tree.configure(yscroll=scrollbar.set)
+    scrollbar.pack(side='right', fill='y')
+
+    def recarregar_lista_pendencias():
+        termo_busca = entry_busca.get().strip()
+        for i in tree.get_children(): tree.delete(i)
+        try:
+            sessoes_pendentes = database.listar_todas_sessoes_pendentes(termo_busca)
+            for sessao in sessoes_pendentes:
+                valor = sessao.get('valor_sessao', 0.0)
+                tree.insert("", "end", iid=sessao['id'], values=(
+                    sessao['id'], sessao['paciente_nome'], 
+                    formatar_data_para_exibicao(sessao['data_sessao']), 
+                    f"{valor:.2f}"
+                ))
+        except sqlite3.Error as e:
+            messagebox.showerror("Erro de Banco de Dados", f"Erro ao carregar pendências: {e}", parent=janela_ctrl_pgto)
+
+    def marcar_selecionadas_como_pagas():
+        itens_selecionados = tree.selection()
+        if not itens_selecionados:
+            messagebox.showwarning("Nenhuma Seleção", "Selecione uma ou mais sessões para marcar como pagas.", parent=janela_ctrl_pgto)
+            return
+        
+        if messagebox.askyesno("Confirmar Pagamento", f"Deseja marcar as {len(itens_selecionados)} sessões selecionadas como 'Pagas'?", parent=janela_ctrl_pgto):
+            try:
+                for item_id in itens_selecionados:
+                    valores = tree.item(item_id, 'values')
+                    valor_sessao = float(valores[3])
+                    database.atualizar_financeiro_sessao(item_id, valor_sessao, 'Pago')
+                messagebox.showinfo("Sucesso", "Pagamentos registrados com sucesso!", parent=janela_ctrl_pgto)
+                recarregar_lista_pendencias()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Não foi possível atualizar os pagamentos: {e}", parent=janela_ctrl_pgto)
+
+    ttk.Button(busca_frame, text="Buscar", command=recarregar_lista_pendencias).pack(side='left', padx=5)
+    ttk.Button(frame, text="Marcar Selecionadas como Pagas", command=marcar_selecionadas_como_pagas).pack(side='bottom', pady=(10, 0))
+    recarregar_lista_pendencias()
 
 def abrir_janela_fluxo_caixa(janela_pai):
     """Abre a janela de gestão financeira (Fluxo de Caixa)."""
@@ -620,6 +823,13 @@ def abrir_janela_fluxo_caixa(janela_pai):
     lbl_saldo = ttk.Label(saldo_frame, text="Saldo: R$ 0.00", font=("Helvetica", 14, "bold"), foreground="green")
     lbl_saldo.pack(side='right', padx=10)
 
+    # --- Frame de Botões de Ação ---
+    botoes_financeiro_frame = ttk.Frame(main_frame)
+    botoes_financeiro_frame.pack(fill='x', pady=(10,0))
+
+    btn_relatorio = ttk.Button(botoes_financeiro_frame, text="Gerar Relatório por Plano de Saúde", command=lambda: abrir_janela_relatorio_por_plano(janela_financeiro, formatar_data_para_db(cal_inicio.get_date()), formatar_data_para_db(cal_fim.get_date())))
+    btn_relatorio.pack(side='left')
+
     def carregar_dados_financeiros():
         data_inicio_db = formatar_data_para_db(cal_inicio.get_date())
         data_fim_db = formatar_data_para_db(cal_fim.get_date())
@@ -679,14 +889,13 @@ def abrir_janela_fluxo_caixa(janela_pai):
 
 # --- Funções para Abrir Janelas de Pacientes ---
 
-
-def abrir_janela_cadastro(janela_principal):
+def abrir_janela_cadastro(janela_pai, callback_atualizar=None):
     """Abre uma nova janela para o cadastro de pacientes."""
-    janela_cadastro = tk.Toplevel(janela_principal)
+    janela_cadastro = tk.Toplevel(janela_pai)
     janela_cadastro.title("Cadastrar Novo Paciente")
     janela_cadastro.geometry("450x290")
-    janela_cadastro.resizable(False, False)
-    janela_cadastro.transient(janela_principal)
+    janela_cadastro.resizable(True, True)
+    janela_cadastro.transient(janela_pai)
     janela_cadastro.grab_set()
 
     frame = tk.Frame(janela_cadastro, padx=20, pady=20)
@@ -730,6 +939,11 @@ def abrir_janela_cadastro(janela_principal):
     )
     btn_salvar.grid(row=6, column=1, sticky="e", pady=15)
 
+    # Espera a janela de cadastro ser fechada e depois chama o callback para atualizar a lista.
+    janela_pai.wait_window(janela_cadastro)
+    if callback_atualizar:
+        callback_atualizar()
+
 def abrir_janela_edicao(janela_pai, paciente_id, callback_atualizar):
     """Abre uma janela para editar os dados de um paciente."""
     paciente_data = database.buscar_paciente_por_id(paciente_id)
@@ -739,8 +953,8 @@ def abrir_janela_edicao(janela_pai, paciente_id, callback_atualizar):
 
     janela_edicao = tk.Toplevel(janela_pai)
     janela_edicao.title("Editar Paciente")
-    janela_edicao.geometry("450x290")
-    janela_edicao.resizable(False, False)
+    janela_edicao.geometry("450x300")
+    janela_edicao.resizable(True, True)
     janela_edicao.transient(janela_pai)
     janela_edicao.grab_set()
 
@@ -849,7 +1063,7 @@ def abrir_janela_detalhes_sessao(janela_pai, sessao_id):
     data_exibicao = formatar_data_para_exibicao(sessao_data['data_sessao'])
     janela_detalhes.title(f"Detalhes da Sessão - {data_exibicao if data_exibicao else 'Data Inválida'}")
     janela_detalhes.geometry("600x500")
-    janela_detalhes.resizable(False, False)
+    janela_detalhes.resizable(True, True)
     janela_detalhes.transient(janela_pai)
     janela_detalhes.grab_set()
 
@@ -942,64 +1156,52 @@ def abrir_janela_sessoes(janela_pai, paciente_id, paciente_nome, callback_atuali
         if callback_atualizar_calendario:
             callback_atualizar_calendario()
 
+    # --- Lógica do Menu de Contexto (Botão Direito) ---
+    def marcar_status_pagamento(novo_status):
+        """Atualiza o status de pagamento da sessão selecionada."""
+        selected_item_id = tree.focus()
+        if not selected_item_id:
+            return
+        
+        try:
+            # Pega o valor atual para não o zerar acidentalmente
+            valores = tree.item(selected_item_id, 'values')
+            valor_atual = float(valores[4])
+            
+            database.atualizar_financeiro_sessao(selected_item_id, valor_atual, novo_status)
+            recarregar_sessoes() # Atualiza a lista para refletir a mudança
+        except Exception as e:
+            messagebox.showerror("Erro", f"Não foi possível atualizar o status: {e}", parent=janela_sessoes)
+
+    def mostrar_menu_contexto(event):
+        """Exibe o menu de contexto ao clicar com o botão direito."""
+        item_id = tree.identify_row(event.y)
+        if item_id:
+            tree.selection_set(item_id)
+            tree.focus(item_id)
+            menu_contexto.post(event.x_root, event.y_root)
+
     def ao_clicar_duas_vezes(event):
-        """Permite a edição in-loco do valor e status."""
+        """Abre os detalhes da sessão ao dar um duplo clique."""
         item_id = tree.focus()
         if not item_id:
             return
+        abrir_janela_detalhes_sessao(janela_sessoes, item_id)
 
-        coluna = tree.identify_column(event.x)
-        if coluna not in ('#5', '#6'): # Permite edição apenas nas colunas de Valor e Status
-            # Se clicar em outra coluna, abre os detalhes completos
-            abrir_janela_detalhes_sessao(janela_sessoes, item_id)
-            return
+    # --- Configuração dos Menus e Eventos ---
+    menu_contexto = tk.Menu(tree, tearoff=0)
+    menu_contexto.add_command(label="Marcar como Pago", command=lambda: marcar_status_pagamento('Pago'))
+    menu_contexto.add_command(label="Marcar como Pendente", command=lambda: marcar_status_pagamento('Pendente'))
+    menu_contexto.add_separator()
+    menu_contexto.add_command(label="Ver Detalhes da Sessão", command=lambda: abrir_detalhes_selecionado())
+    menu_contexto.add_command(label="Gerar Relatório PDF", command=lambda: gerar_relatorio_selecionado())
 
-        x, y, width, height = tree.bbox(item_id, coluna)
-
-        # Cria um Entry ou Combobox temporário sobre a célula
-        valor_atual = tree.item(item_id, 'values')
-        if coluna == '#5': # Coluna Valor
-            entry_temp = ttk.Entry(tree)
-            entry_temp.place(x=x, y=y, width=width, height=height)
-            entry_temp.insert(0, valor_atual[4])
-            entry_temp.focus()
-            entry_temp.bind("<FocusOut>", lambda e: entry_temp.destroy())
-            entry_temp.bind("<Return>", lambda e: salvar_edicao_celula(item_id, coluna, entry_temp.get()))
-        elif coluna == '#6': # Coluna Status
-            combo_temp = ttk.Combobox(tree, values=['Pendente', 'Pago', 'Cancelado'], state='readonly')
-            combo_temp.place(x=x, y=y, width=width, height=height)
-            combo_temp.set(valor_atual[5])
-            combo_temp.focus()
-            combo_temp.bind("<FocusOut>", lambda e: combo_temp.destroy())
-            combo_temp.bind("<<ComboboxSelected>>", lambda e: salvar_edicao_celula(item_id, coluna, combo_temp.get()))
-
-    def salvar_edicao_celula(item_id, coluna, novo_valor):
-        """Atualiza o valor na Treeview após a edição."""
-        valores_atuais = list(tree.item(item_id, 'values'))
-        if coluna == '#5': # Valor
-            valores_atuais[4] = f"{float(novo_valor.replace(',', '.')):.2f}"
-        elif coluna == '#6': # Status
-            valores_atuais[5] = novo_valor
-        
-        tree.item(item_id, values=valores_atuais)
-        # Marca a linha como modificada (opcional, para feedback visual)
-        tree.tag_configure('modificado', foreground='purple')
-        tree.item(item_id, tags=('modificado',))
-
+    tree.bind("<Button-3>", mostrar_menu_contexto) # Botão direito do mouse
     tree.bind("<Double-1>", ao_clicar_duas_vezes)
 
     # Botões de Ação
     botoes_frame = ttk.Frame(frame, padding=(0, 10, 0, 0))
     botoes_frame.pack(fill='x', side='bottom')
-
-    def salvar_alteracoes_financeiras():
-        for item_id in tree.get_children():
-            valores = tree.item(item_id, 'values')
-            valor = float(valores[4])
-            status = valores[5]
-            database.atualizar_financeiro_sessao(item_id, valor, status)
-        messagebox.showinfo("Sucesso", "Alterações financeiras salvas!", parent=janela_sessoes)
-        recarregar_sessoes() # Recarrega para aplicar cores e remover tag 'modificado'
     
     btn_adicionar = ttk.Button(
         botoes_frame, 
@@ -1008,9 +1210,6 @@ def abrir_janela_sessoes(janela_pai, paciente_id, paciente_nome, callback_atuali
     )
     btn_adicionar.pack(side='left', padx=5)
 
-    ttk.Button(botoes_frame, text="Salvar Alterações Financeiras", command=salvar_alteracoes_financeiras).pack(side='left', padx=5)
-    ttk.Button(botoes_frame, text="Ver Detalhes da Sessão", command=lambda: abrir_detalhes_selecionado()).pack(side='left', padx=5)
-    
     def editar_sessao_selecionada():
         selected_item = tree.focus()
         if not selected_item:
@@ -1025,6 +1224,15 @@ def abrir_janela_sessoes(janela_pai, paciente_id, paciente_nome, callback_atuali
             messagebox.showwarning("Nenhuma Seleção", "Por favor, selecione uma sessão para ver os detalhes.", parent=janela_sessoes)
             return
         abrir_janela_detalhes_sessao(janela_sessoes, selected_item)
+
+    def gerar_relatorio_selecionado():
+        selected_item = tree.focus()
+        if not selected_item:
+            messagebox.showwarning("Nenhuma Seleção", "Por favor, selecione uma sessão para gerar o relatório.", parent=janela_sessoes)
+            return
+        gerar_relatorio_sessao_pdf(janela_sessoes, selected_item)
+
+    ttk.Button(botoes_frame, text="Ver Detalhes", command=abrir_detalhes_selecionado).pack(side='left', padx=5)
 
     def excluir_sessao_selecionada():
         selected_item = tree.focus()
@@ -1042,6 +1250,7 @@ def abrir_janela_sessoes(janela_pai, paciente_id, paciente_nome, callback_atuali
             except sqlite3.Error as e:
                 messagebox.showerror("Erro", f"Erro ao excluir sessão: {e}", parent=janela_sessoes)
 
+    ttk.Button(botoes_frame, text="Gerar Relatório PDF", command=gerar_relatorio_selecionado).pack(side='right', padx=5)
     ttk.Button(botoes_frame, text="Excluir Sessão", command=excluir_sessao_selecionada).pack(side='right', padx=5)
 
     # Carrega os dados iniciais
@@ -1052,7 +1261,7 @@ def abrir_janela_form_sessao(janela_pai, callback_atualizar, paciente_id=None, s
     janela_form = tk.Toplevel(janela_pai)
     janela_form.title("Registrar Nova Sessão" if not sessao_id else "Editar Sessão")
     janela_form.geometry("600x550")
-    janela_form.resizable(False, False)
+    janela_form.resizable(True, True)
     janela_form.transient(janela_pai)
     janela_form.grab_set()
 
@@ -1320,18 +1529,23 @@ class JanelaListaPacientes(tk.Toplevel):
         # --- Tabela (Treeview) ---
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(expand=True, fill='both')
-        cols = ('ID', 'Nome Completo', 'Idade', 'Nascimento', 'Responsável', 'Telefone', 'Plano de Saúde', 'Valor Padrão')
+        # Colunas reordenadas para colocar o status ao lado do nome
+        cols = ('ID', 'Nome Completo', 'Status Pagamento', 'Idade', 'Nascimento', 'Responsável', 'Telefone', 'Plano de Saúde', 'Valor Padrão')
         self.tree = ttk.Treeview(tree_frame, columns=cols, show='headings', height=15)
 
-        self.tree.heading('ID', text='ID'); self.tree.column('ID', width=50, anchor='center')
+        self.tree.heading('ID', text='ID'); self.tree.column('ID', width=40, anchor='center')
         self.tree.heading('Nome Completo', text='Nome'); self.tree.column('Nome Completo', width=200)
-        self.tree.heading('Idade', text='Idade'); self.tree.column('Idade', width=50, anchor='center')
+        self.tree.heading('Status Pagamento', text='Status'); self.tree.column('Status Pagamento', width=80, anchor='center')
+        self.tree.heading('Idade', text='Idade'); self.tree.column('Idade', width=40, anchor='center')
         self.tree.heading('Nascimento', text='Nascimento'); self.tree.column('Nascimento', width=100, anchor='center')
         self.tree.heading('Responsável', text='Responsável'); self.tree.column('Responsável', width=200)
         self.tree.heading('Telefone', text='Telefone'); self.tree.column('Telefone', width=100)
         self.tree.heading('Plano de Saúde', text='Plano de Saúde'); self.tree.column('Plano de Saúde', width=150)
         self.tree.heading('Valor Padrão', text='Valor (R$)'); self.tree.column('Valor Padrão', width=80, anchor='e')
 
+        # Adicionando tag para destacar pacientes com pendências
+        self.tree.tag_configure('paciente_pendente', background='#fce5cd') # Laranja claro
+        
         self.tree.grid(row=0, column=0, sticky='nsew')
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscroll=scrollbar.set)
@@ -1339,14 +1553,28 @@ class JanelaListaPacientes(tk.Toplevel):
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # --- Botões de Ação ---
+        # --- Botões de Ação Principais ---
         botoes_frame = ttk.Frame(frame)
         botoes_frame.pack(fill='x', side='bottom', pady=(10, 0))
         
-        ttk.Button(botoes_frame, text="Editar Paciente", command=self.editar_selecionado).pack(side='left', padx=5)
-        ttk.Button(botoes_frame, text="Excluir Paciente", command=self.excluir_selecionado).pack(side='left', padx=5)
-        ttk.Button(botoes_frame, text="Ver Sessões", command=self.ver_sessoes_selecionado).pack(side='right', padx=5)
-        ttk.Button(botoes_frame, text="Ver Prontuário", command=self.ver_prontuario_selecionado).pack(side='right', padx=5)
+        # Botões principais movidos para o menu de contexto para uma UI mais limpa
+        ttk.Button(botoes_frame, text="Adicionar Novo Paciente", command=lambda: abrir_janela_cadastro(self, self.recarregar_lista)).pack(side='left')
+        ttk.Button(botoes_frame, text="Atualizar Lista", command=self.recarregar_lista).pack(side='right')
+
+        # --- Menu de Contexto ---
+        self.menu_contexto = tk.Menu(self.tree, tearoff=0)
+        self.menu_contexto.add_command(label="Ver Sessões", command=self.ver_sessoes_selecionado)
+        self.menu_contexto.add_command(label="Ver Prontuário", command=self.ver_prontuario_selecionado)
+        self.menu_contexto.add_separator()
+        self.menu_contexto.add_command(label="Quitar Pagamentos Pendentes", command=self.gerenciar_pagamentos)
+        self.menu_contexto.add_separator()
+        self.menu_contexto.add_command(label="Editar Paciente", command=self.editar_selecionado)
+        self.menu_contexto.add_command(label="Excluir Paciente", command=self.excluir_selecionado)
+
+        self.tree.bind("<Button-3>", self.mostrar_menu_contexto)
+
+        # --- Evento de clique na célula ---
+        self.tree.bind("<Button-1>", self.on_cell_click)
 
     def recarregar_lista(self):
         termo_busca = self.entry_busca.get().strip()
@@ -1355,16 +1583,23 @@ class JanelaListaPacientes(tk.Toplevel):
         try:
             pacientes = database.buscar_pacientes_por_nome(termo_busca) if termo_busca else database.listar_pacientes()
             for paciente in pacientes:
+                # Verifica se o paciente tem pendências financeiras
+                tem_pendencia = database.verificar_pendencias_paciente(paciente['id'])
+                status_pagamento = "Pendente" if tem_pendencia else "Em dia"
+                tag = 'paciente_pendente' if tem_pendencia else ''
+
                 idade = calcular_idade(paciente.get('data_nascimento', ''))
                 data_nasc_exibicao = formatar_data_para_exibicao(paciente['data_nascimento'])
+                # Valores reordenados para corresponder às novas colunas
                 valores = (
-                    paciente['id'], paciente['nome_completo'], idade, 
+                    paciente['id'], paciente['nome_completo'], status_pagamento,
+                    idade, 
                     data_nasc_exibicao, paciente['nome_responsavel'], 
                     paciente.get('telefone_responsavel') or "",
                     paciente.get('plano_saude_nome') or "Não definido",
                     f"{paciente.get('valor_sessao_padrao', 0.0):.2f}"
                 )
-                self.tree.insert("", "end", values=valores)
+                self.tree.insert("", "end", values=valores, tags=(tag,))
         except sqlite3.Error as e:
             messagebox.showerror("Erro de Banco de Dados", f"Ocorreu um erro ao buscar pacientes: {e}", parent=self)
 
@@ -1378,6 +1613,44 @@ class JanelaListaPacientes(tk.Toplevel):
             messagebox.showwarning("Nenhuma Seleção", "Por favor, selecione um paciente.", parent=self)
             return None
         return self.tree.item(selected_item)['values']
+
+    def on_cell_click(self, event):
+        """Lida com cliques nas células da tabela, especialmente na coluna de pagamentos."""
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+
+        item_id = self.tree.identify_row(event.y)
+        if not item_id:
+            return
+        
+        column_id = self.tree.identify_column(event.x)
+        # A coluna 'Status Pagamento' é a 3ª, então seu ID é #3
+        if column_id == '#3':
+            self.tree.focus(item_id) # Foca na linha clicada apenas se a coluna certa for clicada
+            paciente_info = self.tree.item(item_id, 'values')
+            status_pagamento = paciente_info[2]
+            if status_pagamento == 'Pendente':
+                self.gerenciar_pagamentos()
+            else:
+                messagebox.showinfo("Pagamentos", "Este paciente está com os pagamentos em dia.", parent=self)
+
+    def mostrar_menu_contexto(self, event):
+        """Exibe o menu de contexto ao clicar com o botão direito."""
+        item_id = self.tree.identify_row(event.y)
+        if item_id:
+            self.tree.selection_set(item_id)
+            self.tree.focus(item_id)
+            
+            # Habilita/desabilita a opção de gerenciar pagamentos
+            paciente_info = self.tree.item(item_id, 'values')
+            status_pagamento = paciente_info[2] # A 3ª coluna (índice 2) é 'Status Pagamento'
+            if status_pagamento == 'Pendente':
+                self.menu_contexto.entryconfig("Quitar Pagamentos Pendentes", state="normal")
+            else:
+                self.menu_contexto.entryconfig("Quitar Pagamentos Pendentes", state="disabled")
+            
+            self.menu_contexto.post(event.x_root, event.y_root)
 
     def editar_selecionado(self):
         paciente_info = self._get_selected_paciente_info()
@@ -1396,6 +1669,12 @@ class JanelaListaPacientes(tk.Toplevel):
         if paciente_info:
             paciente_id, paciente_nome = paciente_info[0], paciente_info[1]
             abrir_janela_prontuario(self, paciente_id, paciente_nome)
+
+    def gerenciar_pagamentos(self):
+        paciente_info = self._get_selected_paciente_info()
+        if paciente_info:
+            paciente_id, paciente_nome = paciente_info[0], paciente_info[1]
+            abrir_janela_pagamentos_pendentes(self, paciente_id, paciente_nome, self.recarregar_lista)
 
     def excluir_selecionado(self):
         paciente_info = self._get_selected_paciente_info()
@@ -1519,6 +1798,89 @@ def abrir_janela_gerenciar_usuarios(janela_principal):
 
     recarregar_lista()
     
+def abrir_janela_gerenciar_planos(janela_pai):
+    """Abre uma janela para adicionar e remover planos de saúde."""
+    janela_planos = tk.Toplevel(janela_pai)
+    janela_planos.title("Gerenciar Planos de Saúde")
+    janela_planos.geometry("500x400")
+    janela_planos.transient(janela_pai)
+    janela_planos.grab_set()
+
+    frame = ttk.Frame(janela_planos, padding=10)
+    frame.pack(fill='both', expand=True)
+
+    # --- Frame para adicionar novo plano ---
+    add_frame = ttk.LabelFrame(frame, text="Adicionar Novo Plano", padding=10)
+    add_frame.pack(fill='x', pady=(0, 10))
+    
+    ttk.Label(add_frame, text="Nome do Plano:").pack(side='left', padx=(0, 5))
+    entry_nome_plano = ttk.Entry(add_frame, width=30)
+    entry_nome_plano.pack(side='left', expand=True, fill='x')
+
+    def adicionar_novo_plano():
+        nome = entry_nome_plano.get().strip()
+        if not nome:
+            messagebox.showwarning("Campo Vazio", "O nome do plano não pode ser vazio.", parent=janela_planos)
+            return
+        try:
+            database.adicionar_plano_saude(nome)
+            entry_nome_plano.delete(0, 'end')
+            recarregar_lista_planos()
+        except ValueError as e:
+            messagebox.showerror("Erro", str(e), parent=janela_planos)
+        except sqlite3.Error as e:
+            messagebox.showerror("Erro de Banco de Dados", f"Não foi possível adicionar o plano: {e}", parent=janela_planos)
+
+    ttk.Button(add_frame, text="Adicionar", command=adicionar_novo_plano).pack(side='left', padx=5)
+
+    # --- Tabela de planos existentes ---
+    tree_frame = ttk.Frame(frame)
+    tree_frame.pack(fill='both', expand=True)
+    cols = ('ID', 'Nome')
+    tree_planos = ttk.Treeview(tree_frame, columns=cols, show='headings')
+    tree_planos.heading('ID', text='ID'); tree_planos.column('ID', width=50, anchor='center')
+    tree_planos.heading('Nome', text='Nome do Plano'); tree_planos.column('Nome', width=300)
+    tree_planos.pack(side='left', fill='both', expand=True)
+    scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=tree_planos.yview)
+    tree_planos.configure(yscroll=scrollbar.set)
+    scrollbar.pack(side='right', fill='y')
+
+    def recarregar_lista_planos():
+        for i in tree_planos.get_children(): tree_planos.delete(i)
+        try:
+            for plano in database.listar_planos_saude():
+                tree_planos.insert("", "end", values=(plano['id'], plano['nome']))
+        except sqlite3.Error as e:
+            messagebox.showerror("Erro", f"Erro ao carregar planos: {e}", parent=janela_planos)
+
+    def excluir_plano_selecionado():
+        selected_item = tree_planos.focus()
+        if not selected_item:
+            messagebox.showwarning("Nenhuma Seleção", "Selecione um plano para excluir.", parent=janela_planos)
+            return
+        
+        plano_id, plano_nome = tree_planos.item(selected_item)['values']
+
+        # Prevenção para não excluir planos essenciais
+        if plano_nome.lower() in ['particular', 'outro']:
+            messagebox.showerror("Ação Inválida", f"O plano '{plano_nome}' não pode ser excluído.", parent=janela_planos)
+            return
+
+        if messagebox.askyesno("Confirmar Exclusão", f"Tem certeza que deseja excluir o plano '{plano_nome}'?", parent=janela_planos):
+            try:
+                database.excluir_plano_saude(plano_id)
+                recarregar_lista_planos()
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Erro de Integridade", f"Não é possível excluir o plano '{plano_nome}', pois ele está sendo utilizado por um ou mais pacientes.", parent=janela_planos)
+            except sqlite3.Error as e:
+                messagebox.showerror("Erro de Banco de Dados", f"Não foi possível excluir o plano: {e}", parent=janela_planos)
+
+    # --- Botão de Excluir ---
+    bottom_frame = ttk.Frame(frame)
+    bottom_frame.pack(fill='x', pady=(10, 0))
+    ttk.Button(bottom_frame, text="Excluir Plano Selecionado", command=excluir_plano_selecionado).pack(side='left')
+
+    recarregar_lista_planos()
 
 def abrir_janela_principal():
     """Cria e exibe a janela principal da aplicação após o login."""
@@ -1558,7 +1920,7 @@ def abrir_janela_principal():
     right_frame.pack(side='right', fill='both', expand=True)
 
     # --- Botões de Ação (no frame da esquerda) ---
-    btn_cadastrar = tk.Button(left_frame, text="Cadastrar Paciente", font=("Helvetica", 11), command=lambda: abrir_janela_cadastro(root))
+    btn_cadastrar = tk.Button(left_frame, text="Cadastrar Paciente", font=("Helvetica", 11), command=lambda: abrir_janela_cadastro(root, None))
     btn_cadastrar.pack(pady=5, fill='x')
 
     # Botões visíveis apenas para o administrador
@@ -1567,9 +1929,20 @@ def abrir_janela_principal():
         btn_medicos.pack(pady=5, fill='x')
         btn_gerenciar_usuarios = tk.Button(left_frame, text="Gerenciar Usuários", font=("Helvetica", 11), command=lambda: abrir_janela_gerenciar_usuarios(root))
         btn_gerenciar_usuarios.pack(pady=5, fill='x')
+        btn_gerenciar_planos = tk.Button(left_frame, text="Gerenciar Planos", font=("Helvetica", 11), command=lambda: abrir_janela_gerenciar_planos(root))
+        btn_gerenciar_planos.pack(pady=5, fill='x')
+        
+        # Botões de Backup e Restauração
+        btn_backup = tk.Button(left_frame, text="Backup do Sistema", font=("Helvetica", 11), command=lambda: realizar_backup(root))
+        btn_backup.pack(pady=5, fill='x')
+        btn_restore = tk.Button(left_frame, text="Restaurar Backup", font=("Helvetica", 11), command=lambda: realizar_restauracao(root))
+        btn_restore.pack(pady=5, fill='x')
 
     btn_agenda_geral = tk.Button(left_frame, text="Agenda Geral", font=("Helvetica", 11), command=lambda: abrir_janela_agenda_geral(root))
     btn_agenda_geral.pack(pady=5, fill='x')
+
+    btn_controle_pagamentos = tk.Button(left_frame, text="Controle de Pagamentos", font=("Helvetica", 11), command=lambda: abrir_janela_controle_pagamentos(root))
+    btn_controle_pagamentos.pack(pady=5, fill='x')
 
     btn_financeiro = tk.Button(left_frame, text="Gestão Financeira", font=("Helvetica", 11), command=lambda: abrir_janela_fluxo_caixa(root))
     btn_financeiro.pack(pady=5, fill='x')
@@ -1649,7 +2022,7 @@ def abrir_janela_login():
     login_window = tk.Tk()
     login_window.title("Login - Sistema de Clínica")
     login_window.geometry("350x180")
-    login_window.resizable(False, False)
+    login_window.resizable(True, True)
 
     # Centraliza a janela na tela
     window_width, window_height = 350, 180
