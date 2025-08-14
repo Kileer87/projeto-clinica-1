@@ -496,9 +496,6 @@ def abrir_janela_agenda_geral(janela_pai):
     lbl_info = ttk.Label(cal_frame, text="Selecione uma data para ver a disponibilidade de todos os terapeutas.", font=("Helvetica", 11))
     lbl_info.pack(side='left', anchor='w')
 
-    btn_atualizar_agenda = ttk.Button(cal_frame, text="Atualizar", command=lambda: atualizar_disponibilidade_geral())
-    btn_atualizar_agenda.pack(side='right', padx=10)
-
     # --- Frame da Tabela de Disponibilidade (Abaixo) ---
     tree_frame = ttk.Frame(main_frame)
     tree_frame.pack(fill='both', expand=True)
@@ -567,9 +564,6 @@ def abrir_janela_fluxo_caixa(janela_pai):
     ttk.Label(filtro_frame, text="Até:").pack(side='left', padx=(20, 5))
     cal_fim = Calendar(filtro_frame, selectmode='day', date_pattern='dd/mm/y')
     cal_fim.pack(side='left')
-
-    btn_filtrar = ttk.Button(filtro_frame, text="Filtrar Período", command=lambda: carregar_dados_financeiros())
-    btn_filtrar.pack(side='left', padx=20)
 
     # --- Notebook com Abas (Receitas e Despesas) ---
     notebook = ttk.Notebook(main_frame)
@@ -674,6 +668,7 @@ def abrir_janela_fluxo_caixa(janela_pai):
             messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar despesa: {e}", parent=janela_financeiro)
 
     ttk.Button(add_despesa_frame, text="Adicionar", command=adicionar_nova_despesa).grid(row=0, column=6, padx=5)
+    ttk.Button(filtro_frame, text="Filtrar", command=carregar_dados_financeiros).pack(side='left', padx=20)
 
     carregar_dados_financeiros() # Carga inicial
 
@@ -721,6 +716,7 @@ def abrir_janela_cadastro(janela_principal):
     entry_valor = tk.Entry(frame, width=40)
     entry_valor.grid(row=5, column=1, pady=5)
     entry_valor.insert(0, "0.00")
+
 
     btn_salvar = tk.Button(
         frame,
@@ -1360,7 +1356,8 @@ class JanelaListaPacientes(tk.Toplevel):
                     paciente['id'], paciente['nome_completo'], idade, 
                     data_nasc_exibicao, paciente['nome_responsavel'], 
                     paciente.get('telefone_responsavel') or "",
-                    paciente.get('plano_saude_nome') or "Não definido"
+                    paciente.get('plano_saude_nome') or "Não definido",
+                    f"{paciente.get('valor_sessao_padrao', 0.0):.2f}"
                 )
                 self.tree.insert("", "end", values=valores)
         except sqlite3.Error as e:
@@ -1593,12 +1590,6 @@ def abrir_janela_principal():
     tree_agenda.heading('terapeuta', text='Terapeuta'); tree_agenda.column('terapeuta', width=200)
     tree_agenda.pack(fill='both', expand=True)
 
-    def atualizar_dashboard():
-        """Função que atualiza todos os componentes do dashboard."""
-        atualizar_eventos_calendario(cal)
-        atualizar_agenda_do_dia()
-        messagebox.showinfo("Atualização", "Dashboard atualizado com sucesso!", parent=root)
-
     def atualizar_eventos_calendario(calendario):
         """Busca as datas com sessões e as marca no calendário."""
         # Limpa todos os eventos antigos para não duplicar
@@ -1632,9 +1623,6 @@ def abrir_janela_principal():
     # Botão de Listar Pacientes (precisa do callback do calendário)
     btn_listar = tk.Button(left_frame, text="Listar Pacientes", font=("Helvetica", 11), command=lambda: JanelaListaPacientes(root, lambda: atualizar_eventos_calendario(cal)))
     btn_listar.pack(pady=5, fill='x')
-
-    btn_atualizar_dash = tk.Button(left_frame, text="Atualizar Dashboard", font=("Helvetica", 11), command=atualizar_dashboard)
-    btn_atualizar_dash.pack(side='bottom', pady=10, fill='x')
 
     # Carregamento inicial
     atualizar_eventos_calendario(cal)
