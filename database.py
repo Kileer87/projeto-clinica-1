@@ -1,31 +1,35 @@
 import sqlite3
 import hashlib # Para criptografar senhas
+import hmac # Para comparação segura de hashes em versões mais antigas do Python
+import os # Para gerar o "salt" das senhas
 import shutil
-import os
 
 DB_FILE = 'clinica.db'
 
 # --- Funções de Segurança ---
 
-def hash_senha(senha):
+def gerar_hash_com_salt(senha):
     """
-    Gera um hash SHA-256 para a senha, garantindo que não seja armazenada em texto plano.
+    Gera um hash seguro para a senha usando um salt aleatório (PBKDF2).
+    Retorna o hash no formato 'salt:hash' para armazenamento.
     """
-    return hashlib.sha256(senha.encode('utf-8')).hexdigest()
+    salt = os.urandom(16) # Gera um salt aleatório de 16 bytes
+    pwdhash = hashlib.pbkdf2_hmac('sha256', senha.encode('utf-8'), salt, 100000)
+    return f"{salt.hex()}:{pwdhash.hex()}"
 
-# --- Inicialização e Migração ---
-
-def verificar_senha(senha_hash_com_salt, senha):
+def verificar_hash_com_salt(senha_hash_com_salt, senha):
     """Verifica a senha fornecida contra o hash armazenado que contém o salt."""
     try:
         salt_hex, hash_armazenado_hex = senha_hash_com_salt.split(':')
         salt = bytes.fromhex(salt_hex)
         pwdhash_novo = hashlib.pbkdf2_hmac('sha256', senha.encode('utf-8'), salt, 100000)
         # Usa compare_digest para uma comparação segura que previne "timing attacks".
-        return hashlib.compare_digest(bytes.fromhex(hash_armazenado_hex), pwdhash_novo)
+        return hmac.compare_digest(bytes.fromhex(hash_armazenado_hex), pwdhash_novo)
     except (ValueError, TypeError):
         # Retorna False se o formato do hash for inválido.
         return False
+
+# --- Inicialização e Migração ---
 
 def _add_column_if_not_exists(cursor, table_name, column_name, column_type):
     """Função auxiliar para adicionar uma coluna a uma tabela se ela não existir."""
@@ -134,7 +138,7 @@ def inicializar_banco_de_dados():
         if not cursor.fetchone():
             nome_admin_padrao = 'admin'
             senha_admin_padrao = 'admin123'
-            senha_hashed = hash_senha(senha_admin_padrao)
+            senha_hashed = gerar_hash_com_salt(senha_admin_padrao)
             cursor.execute(
                 "INSERT INTO usuarios (nome_usuario, senha_hash, nivel_acesso) VALUES (?, ?, ?)",
                 (nome_admin_padrao, senha_hashed, 'admin')
@@ -158,13 +162,19 @@ def inicializar_banco_de_dados():
 
 # --- Funções de Pacientes ---
 
-def adicionar_paciente(nome, data_nasc, responsavel, telefone_responsavel, plano_saude_id, valor_sessao_padrao):
-    """Adiciona um novo paciente ao banco de dados."""
+def adicionar_paciente(nome, data_nasc, responsavel, telefone_responsavel, plano_saude_id, valor_sessao_padrao, anamnese_inicial=None):
+    """Adiciona um novo paciente e seu prontuário inicial ao banco de dados."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO pacientes (nome_completo, data_nascimento, nome_responsavel, telefone_responsavel, plano_saude_id, valor_sessao_padrao) VALUES (?, ?, ?, ?, ?, ?)",
             (nome, data_nasc, responsavel, telefone_responsavel, plano_saude_id, valor_sessao_padrao)
+        )
+        paciente_id = cursor.lastrowid
+        # Cria um prontuário em branco ou com a anamnese inicial para o novo paciente
+        cursor.execute(
+            "INSERT INTO prontuarios (paciente_id, anamnese) VALUES (?, ?)",
+            (paciente_id, anamnese_inicial or "")
         )
 
 def listar_pacientes():
@@ -332,11 +342,22 @@ def atualizar_prontuario(prontuario_id, queixa, historico, anamnese, info_adicio
             (queixa, historico, anamnese, info_adicional, prontuario_id)
         )
 
+def atualizar_anamnese_paciente(paciente_id, anamnese):
+    """Atualiza o campo anamnese do prontuário de um paciente."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        # Garante que o prontuário exista antes de tentar atualizar (caso tenha sido criado sem um)
+        cursor.execute("INSERT OR IGNORE INTO prontuarios (paciente_id) VALUES (?)", (paciente_id,))
+        cursor.execute(
+            "UPDATE prontuarios SET anamnese = ? WHERE paciente_id = ?",
+            (anamnese, paciente_id)
+        )
+
 # --- Funções de Usuários ---
 
 def adicionar_usuario(nome_usuario, senha, nivel_acesso):
     """Adiciona um novo usuário ao banco de dados. Lança ValueError se o usuário já existir."""
-    senha_hashed = hash_senha(senha)
+    senha_hashed = gerar_hash_com_salt(senha)
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         try:
@@ -357,7 +378,7 @@ def listar_usuarios():
 
 def atualizar_senha_usuario(usuario_id, nova_senha):
     """Atualiza a senha de um usuário específico."""
-    nova_senha_hashed = hash_senha(nova_senha)
+    nova_senha_hashed = gerar_hash_com_salt(nova_senha)
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (nova_senha_hashed, usuario_id))
@@ -369,17 +390,40 @@ def excluir_usuario(usuario_id):
         cursor.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
 
 def verificar_usuario(nome_usuario, senha):
-    """Verifica as credenciais do usuário. Retorna dados do usuário se for válido, senão None."""
-    senha_hashed = hash_senha(senha)
+    """
+    Verifica as credenciais do usuário.
+    É compatível com o formato de hash antigo (sha256) e o novo (salt:hash).
+    Se um hash antigo for validado, ele é atualizado para o novo formato.
+    """
     with sqlite3.connect(DB_FILE) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        # 1. Busca o usuário pelo nome para obter o hash armazenado
         cursor.execute(
-            "SELECT id, nome_usuario, nivel_acesso FROM usuarios WHERE nome_usuario = ? AND senha_hash = ?",
-            (nome_usuario, senha_hashed)
+            "SELECT id, nome_usuario, senha_hash, nivel_acesso FROM usuarios WHERE nome_usuario = ?",
+            (nome_usuario,)
         )
         usuario = cursor.fetchone()
-        return dict(usuario) if usuario else None
+
+        if not usuario:
+            return None
+
+        senha_hash_armazenado = usuario['senha_hash']
+        
+        # Tenta verificar com o novo método (que contém ':')
+        if ':' in senha_hash_armazenado:
+            if verificar_hash_com_salt(senha_hash_armazenado, senha):
+                return {'id': usuario['id'], 'nome_usuario': usuario['nome_usuario'], 'nivel_acesso': usuario['nivel_acesso']}
+        else:
+            # Fallback para o método antigo (sha256 simples) para compatibilidade
+            senha_fornecida_hash_antigo = hashlib.sha256(senha.encode('utf-8')).hexdigest()
+            if hmac.compare_digest(senha_hash_armazenado, senha_fornecida_hash_antigo):
+                # Senha antiga correta! Atualiza para o novo formato.
+                print(f"Atualizando formato da senha para o usuário '{nome_usuario}'...")
+                novo_hash_com_salt = gerar_hash_com_salt(senha)
+                cursor.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (novo_hash_com_salt, usuario['id']))
+                return {'id': usuario['id'], 'nome_usuario': usuario['nome_usuario'], 'nivel_acesso': usuario['nivel_acesso']}
+    return None
 
 # --- Funções de Sessões ---
 
@@ -558,18 +602,21 @@ def listar_despesas_por_periodo(data_inicio_db, data_fim_db):
         )
         return [dict(row) for row in cursor.fetchall()]
 
-def listar_receitas_por_periodo(data_inicio_db, data_fim_db):
-    """Retorna uma lista de todas as receitas (sessões pagas) em um período."""
+def listar_sessoes_financeiro_por_periodo(data_inicio_db, data_fim_db):
+    """
+    Retorna uma lista de todas as sessões (pagas e pendentes) em um período,
+    para uso na tela de fluxo de caixa.
+    """
     with sqlite3.connect(DB_FILE) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.data_sessao, s.valor_sessao, p.nome_completo as paciente_nome, m.nome_completo as medico_nome
+            SELECT s.id, s.data_sessao, s.valor_sessao, s.status_pagamento, p.nome_completo as paciente_nome, m.nome_completo as medico_nome
             FROM sessoes s
             JOIN pacientes p ON s.paciente_id = p.id
             LEFT JOIN medicos m ON s.medico_id = m.id
-            WHERE s.status_pagamento = 'Pago' AND s.data_sessao BETWEEN ? AND ?
-            ORDER BY s.data_sessao DESC
+            WHERE s.data_sessao BETWEEN ? AND ?
+            ORDER BY s.data_sessao DESC, s.status_pagamento
         """, (data_inicio_db, data_fim_db))
         return [dict(row) for row in cursor.fetchall()]
 

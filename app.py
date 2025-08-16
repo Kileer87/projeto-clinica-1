@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
+from typing import Callable, Dict, Any
 from datetime import date, datetime
 import sqlite3
 import database  # Importa nosso módulo de banco de dados
@@ -21,6 +22,80 @@ DIAS_SEMANA_MAP = {
 }
 DIAS_SEMANA_LISTA = list(DIAS_SEMANA_MAP.keys())
 DIAS_SEMANA_INV_MAP = {v: k for k, v in DIAS_SEMANA_MAP.items()}
+
+TERAPIAS_POR_NIVEL = {
+    "Nível 1 – Apoio leve": """**Treinamento de Habilidades Sociais**
+- Jogos de tabuleiro em grupo (aprender a esperar a vez).
+- Simulações de situações do dia a dia (ex.: pedir algo em uma lanchonete).
+- Dinâmicas de apresentações (falar sobre si para colegas).
+- Exercícios de contato visual e cumprimento (aperto de mão, "oi", "tchau").
+
+**Terapia Cognitivo-Comportamental (TCC)**
+- Identificação de emoções em imagens.
+- Diário de sentimentos (escrever ou desenhar como se sentiu).
+- Treino de resolução de problemas simples ("O que você faria se…?").
+
+**Fonoaudiologia**
+- Jogos de rimas.
+- Leitura compartilhada de histórias curtas.
+- Atividades de entonação (ler frases mudando a emoção).
+
+**Atividades Lúdicas**
+- Jogos de memória.
+- Desenho livre ou colorir.
+- Música em grupo (cantar juntos, bater palmas no ritmo).""",
+    "Nível 2 – Apoio moderado": """**Treinamento de Habilidades Sociais**
+- Role play (ensaiar como pedir ajuda na escola).
+- Dinâmicas em dupla (contar uma história junto).
+- Atividades de cooperação (montar quebra-cabeça juntos).
+- Jogo "passar a bola" para treinar interação.
+
+**ABA**
+- Treino de comunicação funcional (apontar figuras para pedir água).
+- Reforço positivo (elogio ou prêmio por completar tarefa).
+- Treino de autonomia (lavar as mãos sozinho, guardar brinquedos).
+
+**Fonoaudiologia**
+- Nomear objetos do cotidiano.
+- Montar frases com figuras.
+- Jogos de “o que é isso?” (mostrar e nomear).
+
+**Terapia Ocupacional**
+- Atividades de coordenação motora fina (botões, encaixar peças).
+- Exercícios com texturas diferentes (areia, massinha, tecido).
+- Treino de vestir roupas (colocar casaco, fechar zíper).
+
+**Musicoterapia**
+- Repetir sons e ritmos com instrumentos simples.
+- Música de pergunta e resposta (“Eu canto uma frase e você responde”).
+- Dança guiada em roda.""",
+    "Nível 3 – Apoio intenso": """**Treinamento de Habilidades Sociais**
+- Ensinar a pedir algo usando figuras ou tablet (PECS/CAA).
+- Jogos simples de turnos (apertar botão na vez dele).
+- Atividades de imitação (imitar gestos do terapeuta).
+- Treino de rotina social (cumprimentar alguém com gesto).
+
+**ABA intensiva**
+- Reforço imediato por comportamento adequado.
+- Sessões estruturadas de “sentar, olhar, apontar”.
+- Pequenos passos de autonomia (guardar 1 brinquedo).
+- Treino repetitivo com pausas curtas.
+
+**Fonoaudiologia com CAA**
+- Uso de cartões para expressar necessidades (água, comida, banheiro).
+- Treino de sons básicos (vogais, sílabas repetidas).
+- Comunicação com aplicativos no tablet.
+
+**Terapia Ocupacional (Integração Sensorial)**
+- Atividades com balanço ou bolas grandes (regular sensorialmente).
+- Brincadeiras com massinha, espuma, água.
+- Caminhar em tapetes de texturas.
+
+**Equoterapia / Atividades alternativas**
+- Montar no cavalo com apoio, estimulando equilíbrio.
+- Carinho e cuidado com o animal.
+- Passeios curtos guiados."""
+}
 
 # --- Funções Auxiliares ---
 
@@ -161,7 +236,7 @@ def realizar_restauracao(janela_pai):
         except Exception as e:
             messagebox.showerror("Erro de Restauração", f"Ocorreu um erro inesperado ao restaurar o banco de dados:\n{e}", parent=janela_pai)
 
-def salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor):
+def salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor, text_terapias):
     """Coleta os dados dos campos de entrada e salva no banco de dados."""
     nome = entry_nome.get().strip()
     data_nasc_str = entry_data.get().strip()
@@ -169,6 +244,7 @@ def salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_t
     telefone_responsavel = entry_tel_resp.get().strip()
     nome_plano = combo_plano.get()
     valor_str = entry_valor.get().replace(',', '.').strip()
+    anamnese_inicial = text_terapias.get("1.0", "end-1c").strip()
 
     if not nome or not data_nasc_str or not responsavel:
         messagebox.showerror("Erro de Validação", "Todos os campos são obrigatórios!", parent=janela_cadastro)
@@ -182,7 +258,7 @@ def salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_t
     try:
         plano_id = planos_map.get(nome_plano)
         valor_padrao = float(valor_str) if valor_str else 0.0
-        database.adicionar_paciente(nome, data_nasc_db, responsavel, telefone_responsavel, plano_id, valor_padrao)
+        database.adicionar_paciente(nome, data_nasc_db, responsavel, telefone_responsavel, plano_id, valor_padrao, anamnese_inicial)
         messagebox.showinfo("Sucesso", f"Paciente {nome} cadastrado com sucesso!", parent=janela_cadastro)
         janela_cadastro.destroy()
     except ValueError:
@@ -190,7 +266,7 @@ def salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_t
     except sqlite3.Error as e:
         messagebox.showerror("Erro de Banco de Dados", f"Ocorreu um erro ao salvar: {e}", parent=janela_cadastro)
 
-def salvar_alteracoes_paciente(janela_edicao, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor, paciente_id):
+def salvar_alteracoes_paciente(janela_edicao, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor, text_terapias, paciente_id):
     """Salva as alterações de um paciente existente."""
     nome = entry_nome.get().strip()
     data_nasc_str = entry_data.get().strip()
@@ -198,6 +274,7 @@ def salvar_alteracoes_paciente(janela_edicao, entry_nome, entry_data, entry_resp
     telefone_responsavel = entry_tel_resp.get().strip()
     nome_plano = combo_plano.get()
     valor_str = entry_valor.get().replace(',', '.').strip()
+    anamnese_texto = text_terapias.get("1.0", "end-1c").strip()
 
     if not nome or not data_nasc_str or not responsavel:
         messagebox.showerror("Erro de Validação", "Todos os campos são obrigatórios!", parent=janela_edicao)
@@ -212,6 +289,7 @@ def salvar_alteracoes_paciente(janela_edicao, entry_nome, entry_data, entry_resp
         plano_id = planos_map.get(nome_plano)
         valor_padrao = float(valor_str) if valor_str else 0.0
         database.atualizar_paciente(paciente_id, nome, data_nasc_db, responsavel, telefone_responsavel, plano_id, valor_padrao)
+        database.atualizar_anamnese_paciente(paciente_id, anamnese_texto)
         messagebox.showinfo("Sucesso", "Dados do paciente atualizados com sucesso!", parent=janela_edicao)
         janela_edicao.destroy()
     except ValueError:
@@ -252,6 +330,17 @@ def salvar_nova_sessao(janela_form, paciente_id, widgets):
         )
         if sessoes_conflitantes:
             messagebox.showwarning("Conflito de Horário", "O terapeuta já possui uma sessão agendada neste horário.", parent=janela_form)
+            return
+
+        # Validação do formato de hora
+        try:
+            if hora_inicio: datetime.strptime(hora_inicio, '%H:%M')
+            if hora_fim: datetime.strptime(hora_fim, '%H:%M')
+            if hora_inicio and hora_fim and datetime.strptime(hora_inicio, '%H:%M') >= datetime.strptime(hora_fim, '%H:%M'):
+                messagebox.showwarning("Lógica Inválida", "O horário de início deve ser anterior ao de fim.", parent=janela_form)
+                return
+        except ValueError:
+            messagebox.showerror("Formato Inválido", "O formato do horário deve ser HH:MM.", parent=janela_form)
             return
 
         database.adicionar_sessao(paciente_id, medico_id, data_sessao_db, hora_inicio, hora_fim, resumo, evolucao, obs_evolucao, plano)
@@ -296,6 +385,17 @@ def salvar_alteracoes_sessao(janela_form, sessao_id, widgets):
         )
         if sessoes_conflitantes:
             messagebox.showwarning("Conflito de Horário", "O terapeuta já possui uma sessão agendada neste horário.", parent=janela_form)
+            return
+
+        # Validação do formato de hora
+        try:
+            if hora_inicio: datetime.strptime(hora_inicio, '%H:%M')
+            if hora_fim: datetime.strptime(hora_fim, '%H:%M')
+            if hora_inicio and hora_fim and datetime.strptime(hora_inicio, '%H:%M') >= datetime.strptime(hora_fim, '%H:%M'):
+                messagebox.showwarning("Lógica Inválida", "O horário de início deve ser anterior ao de fim.", parent=janela_form)
+                return
+        except ValueError:
+            messagebox.showerror("Formato Inválido", "O formato do horário deve ser HH:MM.", parent=janela_form)
             return
 
         database.atualizar_sessao(sessao_id, medico_id, data_sessao_db, hora_inicio, hora_fim, resumo, evolucao, obs_evolucao, plano)
@@ -743,147 +843,199 @@ def abrir_janela_controle_pagamentos(janela_pai):
     ttk.Button(frame, text="Marcar Selecionadas como Pagas", command=marcar_selecionadas_como_pagas).pack(side='bottom', pady=(10, 0))
     recarregar_lista_pendencias()
 
-def abrir_janela_fluxo_caixa(janela_pai):
-    """Abre a janela de gestão financeira (Fluxo de Caixa)."""
-    janela_financeiro = tk.Toplevel(janela_pai)
-    janela_financeiro.title("Gestão Financeira - Fluxo de Caixa")
-    janela_financeiro.geometry("900x600")
-    janela_financeiro.transient(janela_pai)
-    janela_financeiro.grab_set()
+class FluxoCaixaWindow(tk.Toplevel):
+    """Janela de gestão financeira (Fluxo de Caixa)."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Gestão Financeira - Fluxo de Caixa")
+        self.geometry("950x650")
+        self.transient(parent)
+        self.grab_set()
 
-    main_frame = ttk.Frame(janela_financeiro, padding=10)
-    main_frame.pack(fill='both', expand=True)
+        self._create_widgets()
+        self.carregar_dados_financeiros()
 
-    # --- Frame de Filtro de Período ---
-    filtro_frame = ttk.Frame(main_frame)
-    filtro_frame.pack(fill='x', pady=(0, 10))
-    
-    hoje = date.today()
-    primeiro_dia_mes = hoje.replace(day=1)
+    def _create_widgets(self):
+        main_frame = ttk.Frame(self, padding=10)
+        main_frame.pack(fill='both', expand=True)
 
-    ttk.Label(filtro_frame, text="De:").pack(side='left', padx=(0, 5))
-    cal_inicio = Calendar(filtro_frame, selectmode='day', date_pattern='dd/mm/y', year=primeiro_dia_mes.year, month=primeiro_dia_mes.month, day=primeiro_dia_mes.day)
-    cal_inicio.pack(side='left')
+        # --- Frame de Filtro de Período ---
+        filtro_frame = ttk.Frame(main_frame)
+        filtro_frame.pack(fill='x', pady=(0, 10))
+        
+        hoje = date.today()
+        primeiro_dia_mes = hoje.replace(day=1)
 
-    ttk.Label(filtro_frame, text="Até:").pack(side='left', padx=(20, 5))
-    cal_fim = Calendar(filtro_frame, selectmode='day', date_pattern='dd/mm/y')
-    cal_fim.pack(side='left')
+        ttk.Label(filtro_frame, text="De:").pack(side='left', padx=(0, 5))
+        self.cal_inicio = Calendar(filtro_frame, selectmode='day', date_pattern='dd/mm/y', year=primeiro_dia_mes.year, month=primeiro_dia_mes.month, day=primeiro_dia_mes.day)
+        self.cal_inicio.pack(side='left')
 
-    btn_filtrar = ttk.Button(filtro_frame, text="Filtrar Período", command=lambda: carregar_dados_financeiros())
-    btn_filtrar.pack(side='left', padx=20)
+        ttk.Label(filtro_frame, text="Até:").pack(side='left', padx=(20, 5))
+        self.cal_fim = Calendar(filtro_frame, selectmode='day', date_pattern='dd/mm/y')
+        self.cal_fim.pack(side='left')
 
-    # --- Notebook com Abas (Receitas e Despesas) ---
-    notebook = ttk.Notebook(main_frame)
-    notebook.pack(fill='both', expand=True, pady=10)
+        btn_filtrar = ttk.Button(filtro_frame, text="Filtrar Período", command=self.carregar_dados_financeiros)
+        btn_filtrar.pack(side='left', padx=20, anchor='s')
 
-    # Aba de Receitas
-    aba_receitas = ttk.Frame(notebook, padding=10)
-    notebook.add(aba_receitas, text=' Receitas (Sessões Pagas) ')
-    cols_receitas = ('data', 'paciente', 'terapeuta', 'valor')
-    tree_receitas = ttk.Treeview(aba_receitas, columns=cols_receitas, show='headings')
-    tree_receitas.heading('data', text='Data'); tree_receitas.column('data', width=100, anchor='center')
-    tree_receitas.heading('paciente', text='Paciente'); tree_receitas.column('paciente', width=250)
-    tree_receitas.heading('terapeuta', text='Terapeuta'); tree_receitas.column('terapeuta', width=250)
-    tree_receitas.heading('valor', text='Valor (R$)'); tree_receitas.column('valor', width=100, anchor='e')
-    tree_receitas.pack(fill='both', expand=True)
+        # --- Notebook com Abas ---
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill='both', expand=True, pady=10)
 
-    # Aba de Despesas
-    aba_despesas = ttk.Frame(notebook, padding=10)
-    notebook.add(aba_despesas, text=' Despesas ')
-    cols_despesas = ('data', 'descricao', 'valor')
-    tree_despesas = ttk.Treeview(aba_despesas, columns=cols_despesas, show='headings')
-    tree_despesas.heading('data', text='Data'); tree_despesas.column('data', width=100, anchor='center')
-    tree_despesas.heading('descricao', text='Descrição'); tree_despesas.column('descricao', width=400)
-    tree_despesas.heading('valor', text='Valor (R$)'); tree_despesas.column('valor', width=100, anchor='e')
-    tree_despesas.pack(fill='both', expand=True)
+        # --- Aba de Movimentações de Sessões ---
+        aba_receitas = ttk.Frame(notebook, padding=10)
+        notebook.add(aba_receitas, text=' Movimentações de Sessões ')
+        cols_receitas = ('id', 'data', 'paciente', 'terapeuta', 'valor', 'status')
+        self.tree_receitas = ttk.Treeview(aba_receitas, columns=cols_receitas, show='headings')
+        self.tree_receitas.heading('id', text='ID'); self.tree_receitas.column('id', width=0, stretch=tk.NO)
+        self.tree_receitas.heading('data', text='Data'); self.tree_receitas.column('data', width=100, anchor='center')
+        self.tree_receitas.heading('paciente', text='Paciente'); self.tree_receitas.column('paciente', width=250)
+        self.tree_receitas.heading('terapeuta', text='Terapeuta'); self.tree_receitas.column('terapeuta', width=250)
+        self.tree_receitas.heading('valor', text='Valor (R$)'); self.tree_receitas.column('valor', width=100, anchor='e')
+        self.tree_receitas.heading('status', text='Status'); self.tree_receitas.column('status', width=100, anchor='center')
+        self.tree_receitas.pack(fill='both', expand=True)
+        self.tree_receitas.tag_configure('pago', background='#d9ead3')
+        self.tree_receitas.tag_configure('pendente', background='#fce5cd')
 
-    # --- Frame de Adicionar Despesa ---
-    add_despesa_frame = ttk.LabelFrame(aba_despesas, text="Adicionar Nova Despesa", padding=10)
-    add_despesa_frame.pack(fill='x', pady=(10, 0))
-    ttk.Label(add_despesa_frame, text="Descrição:").grid(row=0, column=0, padx=5, pady=5)
-    entry_desc_despesa = ttk.Entry(add_despesa_frame, width=40)
-    entry_desc_despesa.grid(row=0, column=1, padx=5, pady=5)
-    ttk.Label(add_despesa_frame, text="Valor:").grid(row=0, column=2, padx=5, pady=5)
-    entry_valor_despesa = ttk.Entry(add_despesa_frame, width=15)
-    entry_valor_despesa.grid(row=0, column=3, padx=5, pady=5)
-    ttk.Label(add_despesa_frame, text="Data:").grid(row=0, column=4, padx=5, pady=5)
-    entry_data_despesa = ttk.Entry(add_despesa_frame, width=15)
-    entry_data_despesa.insert(0, hoje.strftime('%d/%m/%Y'))
-    entry_data_despesa.grid(row=0, column=5, padx=5, pady=5)
+        # --- Aba de Despesas ---
+        aba_despesas = ttk.Frame(notebook, padding=10)
+        notebook.add(aba_despesas, text=' Despesas ')
+        cols_despesas = ('data', 'descricao', 'valor')
+        self.tree_despesas = ttk.Treeview(aba_despesas, columns=cols_despesas, show='headings')
+        self.tree_despesas.heading('data', text='Data'); self.tree_despesas.column('data', width=100, anchor='center')
+        self.tree_despesas.heading('descricao', text='Descrição'); self.tree_despesas.column('descricao', width=400)
+        self.tree_despesas.heading('valor', text='Valor (R$)'); self.tree_despesas.column('valor', width=100, anchor='e')
+        self.tree_despesas.pack(fill='both', expand=True)
 
-    # --- Frame de Totais e Saldo ---
-    saldo_frame = ttk.Frame(main_frame)
-    saldo_frame.pack(fill='x')
-    lbl_total_receitas = ttk.Label(saldo_frame, text="Total Receitas: R$ 0.00", font=("Helvetica", 12, "bold"), foreground="blue")
-    lbl_total_receitas.pack(side='left', padx=10)
-    lbl_total_despesas = ttk.Label(saldo_frame, text="Total Despesas: R$ 0.00", font=("Helvetica", 12, "bold"), foreground="red")
-    lbl_total_despesas.pack(side='left', padx=10)
-    lbl_saldo = ttk.Label(saldo_frame, text="Saldo: R$ 0.00", font=("Helvetica", 14, "bold"), foreground="green")
-    lbl_saldo.pack(side='right', padx=10)
+        # --- Frame de Adicionar Despesa ---
+        add_despesa_frame = ttk.LabelFrame(aba_despesas, text="Adicionar Nova Despesa", padding=10)
+        add_despesa_frame.pack(fill='x', pady=(10, 0))
+        ttk.Label(add_despesa_frame, text="Descrição:").grid(row=0, column=0, padx=5, pady=5)
+        self.entry_desc_despesa = ttk.Entry(add_despesa_frame, width=40)
+        self.entry_desc_despesa.grid(row=0, column=1, padx=5, pady=5)
+        ttk.Label(add_despesa_frame, text="Valor:").grid(row=0, column=2, padx=5, pady=5)
+        self.entry_valor_despesa = ttk.Entry(add_despesa_frame, width=15)
+        self.entry_valor_despesa.grid(row=0, column=3, padx=5, pady=5)
+        ttk.Label(add_despesa_frame, text="Data:").grid(row=0, column=4, padx=5, pady=5)
+        self.entry_data_despesa = ttk.Entry(add_despesa_frame, width=15)
+        self.entry_data_despesa.insert(0, hoje.strftime('%d/%m/%Y'))
+        self.entry_data_despesa.grid(row=0, column=5, padx=5, pady=5)
+        ttk.Button(add_despesa_frame, text="Adicionar", command=self.adicionar_nova_despesa).grid(row=0, column=6, padx=5)
 
-    # --- Frame de Botões de Ação ---
-    botoes_financeiro_frame = ttk.Frame(main_frame)
-    botoes_financeiro_frame.pack(fill='x', pady=(10,0))
+        # --- Frame de Totais e Saldo ---
+        saldo_frame = ttk.Frame(main_frame)
+        saldo_frame.pack(fill='x', pady=5)
+        self.lbl_total_recebido = ttk.Label(saldo_frame, text="Total Recebido: R$ 0.00", font=("Helvetica", 11, "bold"), foreground="blue")
+        self.lbl_total_recebido.pack(side='left', padx=10)
+        self.lbl_total_a_receber = ttk.Label(saldo_frame, text="Total a Receber: R$ 0.00", font=("Helvetica", 11, "bold"), foreground="orange")
+        self.lbl_total_a_receber.pack(side='left', padx=10)
+        self.lbl_total_despesas = ttk.Label(saldo_frame, text="Total Despesas: R$ 0.00", font=("Helvetica", 11, "bold"), foreground="red")
+        self.lbl_total_despesas.pack(side='left', padx=10)
+        self.lbl_saldo = ttk.Label(saldo_frame, text="Saldo: R$ 0.00", font=("Helvetica", 12, "bold"), foreground="green")
+        self.lbl_saldo.pack(side='right', padx=10)
 
-    btn_relatorio = ttk.Button(botoes_financeiro_frame, text="Gerar Relatório por Plano de Saúde", command=lambda: abrir_janela_relatorio_por_plano(janela_financeiro, formatar_data_para_db(cal_inicio.get_date()), formatar_data_para_db(cal_fim.get_date())))
-    btn_relatorio.pack(side='left')
+        # --- Frame de Botões de Ação ---
+        botoes_financeiro_frame = ttk.Frame(main_frame)
+        botoes_financeiro_frame.pack(fill='x', pady=(5,0))
+        btn_relatorio = ttk.Button(botoes_financeiro_frame, text="Gerar Relatório por Plano de Saúde", command=self.gerar_relatorio_planos)
+        btn_relatorio.pack(side='left')
 
-    def carregar_dados_financeiros():
-        data_inicio_db = formatar_data_para_db(cal_inicio.get_date())
-        data_fim_db = formatar_data_para_db(cal_fim.get_date())
+        # --- Menu de Contexto para a tabela de receitas ---
+        self.menu_contexto_receitas = tk.Menu(self.tree_receitas, tearoff=0)
+        self.menu_contexto_receitas.add_command(label="Marcar como Pago", command=lambda: self.alterar_status_pagamento_sessao('Pago'))
+        self.menu_contexto_receitas.add_command(label="Marcar como Pendente", command=lambda: self.alterar_status_pagamento_sessao('Pendente'))
+        self.tree_receitas.bind("<Button-3>", self.mostrar_menu_receitas)
 
-        # Limpar tabelas
-        for i in tree_receitas.get_children(): tree_receitas.delete(i)
-        for i in tree_despesas.get_children(): tree_despesas.delete(i)
+    def carregar_dados_financeiros(self):
+        data_inicio_db = formatar_data_para_db(self.cal_inicio.get_date())
+        data_fim_db = formatar_data_para_db(self.cal_fim.get_date())
 
-        # Carregar Receitas
-        total_receitas = 0
-        receitas = database.listar_receitas_por_periodo(data_inicio_db, data_fim_db)
-        for r in receitas:
-            valor = r.get('valor_sessao', 0.0)
-            total_receitas += valor
-            tree_receitas.insert("", "end", values=(formatar_data_para_exibicao(r['data_sessao']), r['paciente_nome'], r['medico_nome'], f"{valor:.2f}"))
+        for i in self.tree_receitas.get_children(): self.tree_receitas.delete(i)
+        for i in self.tree_despesas.get_children(): self.tree_despesas.delete(i)
 
-        # Carregar Despesas
-        total_despesas = 0
+        total_recebido, total_a_receber, total_despesas = 0, 0, 0
+
+        sessoes = database.listar_sessoes_financeiro_por_periodo(data_inicio_db, data_fim_db)
+        for s in sessoes:
+            valor = s.get('valor_sessao', 0.0)
+            status = s.get('status_pagamento', 'Pendente')
+            tag = 'pago' if status == 'Pago' else 'pendente'
+            if status == 'Pago':
+                total_recebido += valor
+            else:
+                total_a_receber += valor
+            
+            self.tree_receitas.insert("", "end", iid=s['id'], values=(
+                s['id'], formatar_data_para_exibicao(s['data_sessao']), s['paciente_nome'], 
+                s['medico_nome'], f"{valor:.2f}", status
+            ), tags=(tag,))
+
         despesas = database.listar_despesas_por_periodo(data_inicio_db, data_fim_db)
         for d in despesas:
             valor = d.get('valor', 0.0)
             total_despesas += valor
-            tree_despesas.insert("", "end", values=(formatar_data_para_exibicao(d['data']), d['descricao'], f"{valor:.2f}"))
+            self.tree_despesas.insert("", "end", values=(formatar_data_para_exibicao(d['data']), d['descricao'], f"{valor:.2f}"))
 
-        # Atualizar totais
-        saldo = total_receitas - total_despesas
-        lbl_total_receitas.config(text=f"Total Receitas: R$ {total_receitas:.2f}")
-        lbl_total_despesas.config(text=f"Total Despesas: R$ {total_despesas:.2f}")
-        lbl_saldo.config(text=f"Saldo: R$ {saldo:.2f}", foreground="green" if saldo >= 0 else "red")
+        saldo = total_recebido - total_despesas
+        self.lbl_total_recebido.config(text=f"Total Recebido: R$ {total_recebido:.2f}")
+        self.lbl_total_a_receber.config(text=f"Total a Receber: R$ {total_a_receber:.2f}")
+        self.lbl_total_despesas.config(text=f"Total Despesas: R$ {total_despesas:.2f}")
+        self.lbl_saldo.config(text=f"Saldo: R$ {saldo:.2f}")
 
-    def adicionar_nova_despesa():
-        desc = entry_desc_despesa.get().strip()
-        valor_str = entry_valor_despesa.get().replace(',', '.').strip()
-        data_str = entry_data_despesa.get().strip()
+    def adicionar_nova_despesa(self):
+        """Adiciona uma nova despesa a partir dos campos de entrada."""
+        desc = self.entry_desc_despesa.get().strip()
+        valor_str = self.entry_valor_despesa.get().replace(',', '.').strip()
+        data_str = self.entry_data_despesa.get().strip()
 
         if not (desc and valor_str and data_str):
-            messagebox.showerror("Erro", "Todos os campos da despesa são obrigatórios.", parent=janela_financeiro)
+            messagebox.showerror("Erro", "Todos os campos da despesa são obrigatórios.", parent=self)
+            return
+
+        data_db = formatar_data_para_db(data_str)
+        if not data_db:
+            messagebox.showerror("Erro", "Formato de data inválido. Use DD/MM/AAAA.", parent=self)
             return
         
         try:
             valor = float(valor_str)
-            data_db = formatar_data_para_db(data_str)
-            if not data_db: raise ValueError("Data inválida")
-
             database.adicionar_despesa(desc, valor, data_db)
-            entry_desc_despesa.delete(0, 'end')
-            entry_valor_despesa.delete(0, 'end')
-            carregar_dados_financeiros() # Recarrega tudo
+            self.entry_desc_despesa.delete(0, 'end')
+            self.entry_valor_despesa.delete(0, 'end')
+            self.carregar_dados_financeiros()
         except ValueError:
-            messagebox.showerror("Erro de Validação", "Valor ou data inválidos.", parent=janela_financeiro)
+            messagebox.showerror("Erro", "O valor da despesa deve ser um número.", parent=self)
         except sqlite3.Error as e:
-            messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar despesa: {e}", parent=janela_financeiro)
+            messagebox.showerror("Erro de Banco de Dados", f"Não foi possível salvar a despesa: {e}", parent=self)
 
-    ttk.Button(add_despesa_frame, text="Adicionar", command=adicionar_nova_despesa).grid(row=0, column=6, padx=5)
+    def gerar_relatorio_planos(self):
+        """Abre a janela de relatório de receitas por plano de saúde."""
+        data_inicio_db = formatar_data_para_db(self.cal_inicio.get_date())
+        data_fim_db = formatar_data_para_db(self.cal_fim.get_date())
+        abrir_janela_relatorio_por_plano(self, data_inicio_db, data_fim_db)
 
-    carregar_dados_financeiros() # Carga inicial
+    def mostrar_menu_receitas(self, event):
+        """Exibe o menu de contexto na tabela de receitas."""
+        item_id = self.tree_receitas.identify_row(event.y)
+        if item_id:
+            self.tree_receitas.selection_set(item_id)
+            self.tree_receitas.focus(item_id)
+            self.menu_contexto_receitas.post(event.x_root, event.y_root)
+
+    def alterar_status_pagamento_sessao(self, novo_status):
+        """Altera o status de pagamento da sessão selecionada na tabela de receitas."""
+        selected_item_id = self.tree_receitas.focus()
+        if not selected_item_id:
+            return
+        
+        try:
+            valores = self.tree_receitas.item(selected_item_id, 'values')
+            valor_atual = float(valores[4]) # O valor está na 5ª coluna (índice 4)
+            database.atualizar_financeiro_sessao(selected_item_id, valor_atual, novo_status)
+            self.carregar_dados_financeiros()
+        except (ValueError, IndexError) as e:
+            messagebox.showerror("Erro", f"Não foi possível obter os dados da sessão: {e}", parent=self)
+        except sqlite3.Error as e:
+            messagebox.showerror("Erro de Banco de Dados", f"Não foi possível atualizar o status: {e}", parent=self)
 
 # --- Funções para Abrir Janelas de Pacientes ---
 
@@ -891,51 +1043,73 @@ def abrir_janela_cadastro(janela_pai, callback_atualizar=None):
     """Abre uma nova janela para o cadastro de pacientes."""
     janela_cadastro = tk.Toplevel(janela_pai)
     janela_cadastro.title("Cadastrar Novo Paciente")
-    janela_cadastro.geometry("450x290")
+    janela_cadastro.geometry("600x650")
     janela_cadastro.resizable(True, True)
     janela_cadastro.transient(janela_pai)
     janela_cadastro.grab_set()
 
     frame = tk.Frame(janela_cadastro, padx=20, pady=20)
     frame.pack(expand=True, fill='both')
+    frame.columnconfigure(1, weight=1)
 
-    tk.Label(frame, text="Nome Completo:").grid(row=0, column=0, sticky="w", pady=5)
-    entry_nome = tk.Entry(frame, width=40)
-    entry_nome.grid(row=0, column=1, pady=5)
+    # --- Campos de Dados Pessoais ---
+    tk.Label(frame, text="Nome Completo:").grid(row=0, column=0, sticky="w", pady=2)
+    entry_nome = tk.Entry(frame)
+    entry_nome.grid(row=0, column=1, pady=2, sticky="ew")
     entry_nome.focus_set() # Foco automático no primeiro campo
 
-    tk.Label(frame, text="Data de Nascimento\n(DD/MM/AAAA):").grid(row=1, column=0, sticky="w", pady=5)
-    entry_data = tk.Entry(frame, width=40)
-    entry_data.grid(row=1, column=1, pady=5)
+    tk.Label(frame, text="Data de Nascimento (DD/MM/AAAA):").grid(row=1, column=0, sticky="w", pady=2)
+    entry_data = tk.Entry(frame)
+    entry_data.grid(row=1, column=1, pady=2, sticky="ew")
 
-    tk.Label(frame, text="Nome do Responsável:").grid(row=2, column=0, sticky="w", pady=5)
-    entry_resp = tk.Entry(frame, width=40)
-    entry_resp.grid(row=2, column=1, pady=5)
+    tk.Label(frame, text="Nome do Responsável:").grid(row=2, column=0, sticky="w", pady=2)
+    entry_resp = tk.Entry(frame)
+    entry_resp.grid(row=2, column=1, pady=2, sticky="ew")
 
-    tk.Label(frame, text="Telefone do Responsável:").grid(row=3, column=0, sticky="w", pady=5)
-    entry_tel_resp = tk.Entry(frame, width=40)
-    entry_tel_resp.grid(row=3, column=1, pady=5)
+    tk.Label(frame, text="Telefone do Responsável:").grid(row=3, column=0, sticky="w", pady=2)
+    entry_tel_resp = tk.Entry(frame)
+    entry_tel_resp.grid(row=3, column=1, pady=2, sticky="ew")
 
-    tk.Label(frame, text="Plano de Saúde:").grid(row=4, column=0, sticky="w", pady=5)
+    tk.Label(frame, text="Plano de Saúde:").grid(row=4, column=0, sticky="w", pady=2)
     planos = database.listar_planos_saude()
     planos_map = {p['nome']: p['id'] for p in planos}
-    combo_plano = ttk.Combobox(frame, values=list(planos_map.keys()), state='readonly', width=37)
+    combo_plano = ttk.Combobox(frame, values=list(planos_map.keys()), state='readonly')
     if planos:
         combo_plano.set(planos[0]['nome']) # Define 'Particular' como padrão
-    combo_plano.grid(row=4, column=1, pady=5)
+    combo_plano.grid(row=4, column=1, pady=2, sticky="ew")
 
-    tk.Label(frame, text="Valor Padrão Sessão (R$):").grid(row=5, column=0, sticky="w", pady=5)
-    entry_valor = tk.Entry(frame, width=40)
-    entry_valor.grid(row=5, column=1, pady=5)
+    tk.Label(frame, text="Valor Padrão Sessão (R$):").grid(row=5, column=0, sticky="w", pady=2)
+    entry_valor = tk.Entry(frame)
+    entry_valor.grid(row=5, column=1, pady=2, sticky="ew")
     entry_valor.insert(0, "0.00")
 
+    # --- Seção de Terapias Automáticas ---
+    terapias_frame = ttk.LabelFrame(frame, text="Plano Terapêutico Inicial", padding=10)
+    terapias_frame.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(15, 5))
+    terapias_frame.columnconfigure(1, weight=1)
+
+    tk.Label(terapias_frame, text="Nível de Autismo:").grid(row=0, column=0, sticky="w", padx=(0, 5))
+    combo_nivel = ttk.Combobox(terapias_frame, values=list(TERAPIAS_POR_NIVEL.keys()), state='readonly')
+    combo_nivel.grid(row=0, column=1, sticky="ew")
+
+    text_terapias = tk.Text(terapias_frame, height=15, wrap='word')
+    text_terapias.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+    terapias_frame.rowconfigure(1, weight=1)
+
+    def atualizar_terapias(event):
+        nivel_selecionado = combo_nivel.get()
+        texto_sugerido = TERAPIAS_POR_NIVEL.get(nivel_selecionado, "")
+        text_terapias.delete("1.0", "end")
+        text_terapias.insert("1.0", texto_sugerido)
+
+    combo_nivel.bind("<<ComboboxSelected>>", atualizar_terapias)
 
     btn_salvar = tk.Button(
         frame,
         text="Salvar Cadastro",
-        command=lambda: salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor)
+        command=lambda: salvar_paciente(janela_cadastro, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor, text_terapias)
     )
-    btn_salvar.grid(row=6, column=1, sticky="e", pady=15)
+    btn_salvar.grid(row=7, column=1, sticky="e", pady=15)
 
     # Espera a janela de cadastro ser fechada e depois chama o callback para atualizar a lista.
     janela_pai.wait_window(janela_cadastro)
@@ -950,62 +1124,86 @@ def abrir_janela_edicao(janela_pai, paciente_id, callback_atualizar):
         return
 
     janela_edicao = tk.Toplevel(janela_pai)
-    janela_edicao.title("Editar Paciente")
-    janela_edicao.geometry("450x300")
+    janela_edicao.title(f"Editar Paciente - {paciente_data['nome_completo']}")
+    janela_edicao.geometry("600x650")
     janela_edicao.resizable(True, True)
     janela_edicao.transient(janela_pai)
     janela_edicao.grab_set()
 
     frame = tk.Frame(janela_edicao, padx=20, pady=20)
     frame.pack(expand=True, fill='both')
+    frame.columnconfigure(1, weight=1)
 
-    # Labels e Entradas preenchidas com os dados atuais
-    tk.Label(frame, text="Nome Completo:").grid(row=0, column=0, sticky="w", pady=5)
-    entry_nome = tk.Entry(frame, width=40)
-    entry_nome.grid(row=0, column=1, pady=5)
+    # --- Campos de Dados Pessoais ---
+    tk.Label(frame, text="Nome Completo:").grid(row=0, column=0, sticky="w", pady=2)
+    entry_nome = tk.Entry(frame)
+    entry_nome.grid(row=0, column=1, pady=2, sticky="ew")
     entry_nome.insert(0, paciente_data['nome_completo'])
-    entry_nome.focus_set() # Foco automático
+    entry_nome.focus_set()
 
-    tk.Label(frame, text="Data de Nascimento\n(DD/MM/AAAA):").grid(row=1, column=0, sticky="w", pady=5)
-    entry_data = tk.Entry(frame, width=40)
-    entry_data.grid(row=1, column=1, pady=5)
+    tk.Label(frame, text="Data de Nascimento (DD/MM/AAAA):").grid(row=1, column=0, sticky="w", pady=2)
+    entry_data = tk.Entry(frame)
+    entry_data.grid(row=1, column=1, pady=2, sticky="ew")
     entry_data.insert(0, formatar_data_para_exibicao(paciente_data['data_nascimento']))
 
-    tk.Label(frame, text="Nome do Responsável:").grid(row=2, column=0, sticky="w", pady=5)
-    entry_resp = tk.Entry(frame, width=40)
-    entry_resp.grid(row=2, column=1, pady=5)
+    tk.Label(frame, text="Nome do Responsável:").grid(row=2, column=0, sticky="w", pady=2)
+    entry_resp = tk.Entry(frame)
+    entry_resp.grid(row=2, column=1, pady=2, sticky="ew")
     entry_resp.insert(0, paciente_data['nome_responsavel'])
 
-    tk.Label(frame, text="Telefone do Responsável:").grid(row=3, column=0, sticky="w", pady=5)
-    entry_tel_resp = tk.Entry(frame, width=40)
-    entry_tel_resp.grid(row=3, column=1, pady=5)
+    tk.Label(frame, text="Telefone do Responsável:").grid(row=3, column=0, sticky="w", pady=2)
+    entry_tel_resp = tk.Entry(frame)
+    entry_tel_resp.grid(row=3, column=1, pady=2, sticky="ew")
     entry_tel_resp.insert(0, paciente_data.get('telefone_responsavel') or "")
 
-    tk.Label(frame, text="Plano de Saúde:").grid(row=4, column=0, sticky="w", pady=5)
+    tk.Label(frame, text="Plano de Saúde:").grid(row=4, column=0, sticky="w", pady=2)
     planos = database.listar_planos_saude()
     planos_map = {p['nome']: p['id'] for p in planos}
     inv_planos_map = {v: k for k, v in planos_map.items()}
-    combo_plano = ttk.Combobox(frame, values=list(planos_map.keys()), state='readonly', width=37)
-    
+    combo_plano = ttk.Combobox(frame, values=list(planos_map.keys()), state='readonly')
     plano_atual_id = paciente_data.get('plano_saude_id')
     if plano_atual_id and plano_atual_id in inv_planos_map:
         combo_plano.set(inv_planos_map[plano_atual_id])
     elif planos:
         combo_plano.set(planos[0]['nome'])
-    combo_plano.grid(row=4, column=1, pady=5)
+    combo_plano.grid(row=4, column=1, pady=2, sticky="ew")
 
-    tk.Label(frame, text="Valor Padrão Sessão (R$):").grid(row=5, column=0, sticky="w", pady=5)
-    entry_valor = tk.Entry(frame, width=40)
-    entry_valor.grid(row=5, column=1, pady=5)
+    tk.Label(frame, text="Valor Padrão Sessão (R$):").grid(row=5, column=0, sticky="w", pady=2)
+    entry_valor = tk.Entry(frame)
+    entry_valor.grid(row=5, column=1, pady=2, sticky="ew")
     entry_valor.insert(0, f"{paciente_data.get('valor_sessao_padrao', 0.0):.2f}")
 
-    # Botão Salvar
+    # --- Seção de Terapias (agora na edição também) ---
+    terapias_frame = ttk.LabelFrame(frame, text="Plano Terapêutico / Anamnese", padding=10)
+    terapias_frame.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(15, 5))
+    terapias_frame.columnconfigure(1, weight=1)
+
+    tk.Label(terapias_frame, text="Nível de Autismo (sobrescreve o texto abaixo):").grid(row=0, column=0, sticky="w", padx=(0, 5))
+    combo_nivel = ttk.Combobox(terapias_frame, values=list(TERAPIAS_POR_NIVEL.keys()), state='readonly')
+    combo_nivel.grid(row=0, column=1, sticky="ew")
+
+    text_terapias = tk.Text(terapias_frame, height=15, wrap='word')
+    text_terapias.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+    terapias_frame.rowconfigure(1, weight=1)
+
+    # Carrega a anamnese existente do prontuário
+    prontuario = database.buscar_ou_criar_prontuario(paciente_id)
+    text_terapias.insert("1.0", prontuario.get('anamnese', ''))
+
+    def atualizar_terapias(event):
+        nivel_selecionado = combo_nivel.get()
+        texto_sugerido = TERAPIAS_POR_NIVEL.get(nivel_selecionado, "")
+        text_terapias.delete("1.0", "end")
+        text_terapias.insert("1.0", texto_sugerido)
+
+    combo_nivel.bind("<<ComboboxSelected>>", atualizar_terapias)
+
     btn_salvar = tk.Button(
         frame,
         text="Salvar Alterações",
-        command=lambda: salvar_alteracoes_paciente(janela_edicao, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor, paciente_id)
+        command=lambda: salvar_alteracoes_paciente(janela_edicao, entry_nome, entry_data, entry_resp, entry_tel_resp, combo_plano, planos_map, entry_valor, text_terapias, paciente_id)
     )
-    btn_salvar.grid(row=6, column=1, sticky="e", pady=15)
+    btn_salvar.grid(row=7, column=1, sticky="e", pady=15)
 
     # Espera a janela de edição ser fechada e depois chama o callback para atualizar a lista.
     janela_pai.wait_window(janela_edicao)
@@ -1208,6 +1406,15 @@ def abrir_janela_sessoes(janela_pai, paciente_id, paciente_nome, callback_atuali
     )
     btn_adicionar.pack(side='left', padx=5)
 
+    btn_editar = ttk.Button(
+        botoes_frame,
+        text="Editar Sessão",
+        command=lambda: editar_sessao_selecionada()
+    )
+    btn_editar.pack(side='left', padx=5)
+
+    ttk.Button(botoes_frame, text="Ver Detalhes", command=abrir_detalhes_selecionado).pack(side='left', padx=5)
+
     def editar_sessao_selecionada():
         selected_item = tree.focus()
         if not selected_item:
@@ -1229,8 +1436,6 @@ def abrir_janela_sessoes(janela_pai, paciente_id, paciente_nome, callback_atuali
             messagebox.showwarning("Nenhuma Seleção", "Por favor, selecione uma sessão para gerar o relatório.", parent=janela_sessoes)
             return
         gerar_relatorio_sessao_pdf(janela_sessoes, selected_item)
-
-    ttk.Button(botoes_frame, text="Ver Detalhes", command=abrir_detalhes_selecionado).pack(side='left', padx=5)
 
     def excluir_sessao_selecionada():
         selected_item = tree.focus()
@@ -1457,46 +1662,66 @@ class JanelaListaMedicos(tk.Toplevel):
         ttk.Button(botoes_frame, text="Excluir Selecionado", command=self.excluir_selecionado).pack(side='left', padx=5)
 
     def recarregar_lista(self):
-        for i in self.tree.get_children(): self.tree.delete(i)
+        """Limpa e recarrega a lista de médicos do banco de dados."""
+        for i in self.tree.get_children():
+            self.tree.delete(i)
         try:
             for medico in database.listar_medicos():
                 self.tree.insert("", "end", values=(medico['id'], medico['nome_completo'], medico['especialidade'], medico['contato']))
         except sqlite3.Error as e:
             messagebox.showerror("Erro", f"Erro ao carregar médicos: {e}", parent=self)
 
+    def _get_selected_medico_info(self):
+        """Retorna o ID e o nome do médico selecionado na tabela, ou None se ninguém for selecionado."""
+        selected_item = self.tree.focus()
+        if not selected_item:
+            messagebox.showwarning("Nenhuma Seleção", "Por favor, selecione um médico na lista.", parent=self)
+            return None, None
+        
+        item_values = self.tree.item(selected_item)['values']
+        medico_id = item_values[0]
+        medico_nome = item_values[1]
+        return medico_id, medico_nome
+
     def adicionar_novo(self):
+        """Abre o formulário para adicionar um novo médico."""
         abrir_janela_form_medico(self, self.recarregar_lista)
 
     def editar_selecionado(self):
-        selected_item = self.tree.focus()
-        if not selected_item: return
-        medico_id = self.tree.item(selected_item)['values'][0]
+        """Abre o formulário para editar o médico selecionado."""
+        medico_id, _ = self._get_selected_medico_info()
+        if not medico_id:
+            return
         abrir_janela_form_medico(self, self.recarregar_lista, medico_id=medico_id)
 
     def gerenciar_disponibilidade(self):
-        selected_item = self.tree.focus()
-        if not selected_item:
-            messagebox.showwarning("Nenhuma Seleção", "Por favor, selecione um médico.", parent=self)
+        """Abre a janela de gerenciamento de disponibilidade para o médico selecionado."""
+        medico_id, medico_nome = self._get_selected_medico_info()
+        if not medico_id:
             return
-        medico_id = self.tree.item(selected_item)['values'][0]
-        medico_nome = self.tree.item(selected_item)['values'][1]
         abrir_janela_disponibilidade(self, medico_id, medico_nome)
 
     def excluir_selecionado(self):
-        selected_item = self.tree.focus()
-        if not selected_item: return
-        medico_id = self.tree.item(selected_item)['values'][0]
-        nome_medico = self.tree.item(selected_item)['values'][1]
+        """Exclui o médico selecionado após confirmação."""
+        medico_id, nome_medico = self._get_selected_medico_info()
+        if not medico_id:
+            return
+            
         if messagebox.askyesno("Confirmar", f"Tem certeza que deseja excluir '{nome_medico}'?", parent=self):
             try:
                 database.excluir_medico(medico_id)
                 self.recarregar_lista()
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Erro de Integridade", f"Não é possível excluir '{nome_medico}', pois ele(a) está associado(a) a sessões existentes.", parent=self)
             except sqlite3.Error as e:
-                messagebox.showerror("Erro", f"Erro ao excluir: {e}", parent=self)
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao excluir: {e}", parent=self)
 
 
 class JanelaListaPacientes(tk.Toplevel):
-    def __init__(self, parent, callback_atualizar_calendario):
+    """
+    Janela para listar, buscar e gerenciar todos os pacientes.
+    """
+    def __init__(self, parent: tk.Tk, callback_atualizar_calendario: Callable):
         super().__init__(parent)
         self.callback_atualizar_calendario = callback_atualizar_calendario
 
@@ -1505,10 +1730,11 @@ class JanelaListaPacientes(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
-        self.create_widgets()
+        self._create_widgets()
         self.recarregar_lista()
 
-    def create_widgets(self):
+    def _create_widgets(self):
+        """Cria e posiciona todos os widgets da janela."""
         frame = ttk.Frame(self, padding="10")
         frame.pack(expand=True, fill='both')
 
@@ -1521,7 +1747,7 @@ class JanelaListaPacientes(tk.Toplevel):
         self.entry_busca.pack(side='left', expand=True, fill='x', padx=5)
         self.entry_busca.bind("<Return>", lambda event: self.recarregar_lista())
 
-        ttk.Button(busca_frame, text="Buscar", command=self.recarregar_lista).pack(side='left', padx=5)
+        ttk.Button(busca_frame, text="Buscar", command=self.recarregar_lista).pack(side='left')
         ttk.Button(busca_frame, text="Limpar", command=self.limpar_busca).pack(side='left', padx=5)
 
         # --- Tabela (Treeview) ---
@@ -1569,7 +1795,7 @@ class JanelaListaPacientes(tk.Toplevel):
         self.menu_contexto.add_command(label="Editar Paciente", command=self.editar_selecionado)
         self.menu_contexto.add_command(label="Excluir Paciente", command=self.excluir_selecionado)
 
-        self.tree.bind("<Button-3>", self.mostrar_menu_contexto)
+        self.tree.bind("<Button-3>", self._mostrar_menu_contexto)
 
         # --- Evento de clique na célula ---
         self.tree.bind("<Button-1>", self.on_cell_click)
@@ -1623,9 +1849,10 @@ class JanelaListaPacientes(tk.Toplevel):
             return
         
         column_id = self.tree.identify_column(event.x)
-        # A coluna 'Status Pagamento' é a 3ª, então seu ID é #3
-        if column_id == '#3':
-            self.tree.focus(item_id) # Foca na linha clicada apenas se a coluna certa for clicada
+        # Verifica pelo nome do cabeçalho em vez de um índice fixo (mais robusto)
+        column_header = self.tree.heading(column_id, "text")
+        if column_header == "Status Pagamento":
+            self.tree.focus(item_id) # Foca na linha clicada
             paciente_info = self.tree.item(item_id, 'values')
             status_pagamento = paciente_info[2]
             if status_pagamento == 'Pendente':
@@ -1633,7 +1860,7 @@ class JanelaListaPacientes(tk.Toplevel):
             else:
                 messagebox.showinfo("Pagamentos", "Este paciente está com os pagamentos em dia.", parent=self)
 
-    def mostrar_menu_contexto(self, event):
+    def _mostrar_menu_contexto(self, event):
         """Exibe o menu de contexto ao clicar com o botão direito."""
         item_id = self.tree.identify_row(event.y)
         if item_id:
@@ -1691,7 +1918,7 @@ class JanelaListaPacientes(tk.Toplevel):
 def abrir_janela_cadastro_usuario(janela_pai, callback_atualizar):
     """Abre uma janela para cadastrar um novo usuário."""
     janela_cad_user = tk.Toplevel(janela_pai)
-    janela_cad_user.title("Cadastrar Novo Usuário")
+    janela_cad_user.title("Cadastrar Usuário")
     janela_cad_user.geometry("400x250")
     janela_cad_user.transient(janela_pai)
     janela_cad_user.grab_set()
@@ -1796,89 +2023,93 @@ def abrir_janela_gerenciar_usuarios(janela_principal):
 
     recarregar_lista()
     
-def abrir_janela_gerenciar_planos(janela_pai):
-    """Abre uma janela para adicionar e remover planos de saúde."""
-    janela_planos = tk.Toplevel(janela_pai)
-    janela_planos.title("Gerenciar Planos de Saúde")
-    janela_planos.geometry("500x400")
-    janela_planos.transient(janela_pai)
-    janela_planos.grab_set()
+class JanelaGerenciarPlanos(tk.Toplevel):
+    """Janela para adicionar e remover planos de saúde."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Gerenciar Planos de Saúde")
+        self.geometry("500x400")
+        self.transient(parent)
+        self.grab_set()
 
-    frame = ttk.Frame(janela_planos, padding=10)
-    frame.pack(fill='both', expand=True)
+        self._create_widgets()
+        self.recarregar_lista_planos()
 
-    # --- Frame para adicionar novo plano ---
-    add_frame = ttk.LabelFrame(frame, text="Adicionar Novo Plano", padding=10)
-    add_frame.pack(fill='x', pady=(0, 10))
-    
-    ttk.Label(add_frame, text="Nome do Plano:").pack(side='left', padx=(0, 5))
-    entry_nome_plano = ttk.Entry(add_frame, width=30)
-    entry_nome_plano.pack(side='left', expand=True, fill='x')
+    def _create_widgets(self):
+        frame = ttk.Frame(self, padding=10)
+        frame.pack(fill='both', expand=True)
 
-    def adicionar_novo_plano():
-        nome = entry_nome_plano.get().strip()
+        # --- Frame para adicionar novo plano ---
+        add_frame = ttk.LabelFrame(frame, text="Adicionar Novo Plano", padding=10)
+        add_frame.pack(fill='x', pady=(0, 10))
+        
+        ttk.Label(add_frame, text="Nome do Plano:").pack(side='left', padx=(0, 5))
+        self.entry_nome_plano = ttk.Entry(add_frame, width=30)
+        self.entry_nome_plano.pack(side='left', expand=True, fill='x')
+        ttk.Button(add_frame, text="Adicionar", command=self._adicionar_novo_plano).pack(side='left', padx=5)
+
+        # --- Tabela de planos existentes ---
+        tree_frame = ttk.Frame(frame)
+        tree_frame.pack(fill='both', expand=True)
+        cols = ('ID', 'Nome')
+        self.tree_planos = ttk.Treeview(tree_frame, columns=cols, show='headings')
+        self.tree_planos.heading('ID', text='ID'); self.tree_planos.column('ID', width=50, anchor='center')
+        self.tree_planos.heading('Nome', text='Nome do Plano'); self.tree_planos.column('Nome', width=300)
+        self.tree_planos.pack(side='left', fill='both', expand=True)
+        scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=self.tree_planos.yview)
+        self.tree_planos.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side='right', fill='y')
+
+        # --- Botão de Excluir ---
+        bottom_frame = ttk.Frame(frame)
+        bottom_frame.pack(fill='x', pady=(10, 0))
+        ttk.Button(bottom_frame, text="Excluir Plano Selecionado", command=self._excluir_plano_selecionado).pack(side='left')
+
+    def _adicionar_novo_plano(self):
+        nome = self.entry_nome_plano.get().strip()
         if not nome:
-            messagebox.showwarning("Campo Vazio", "O nome do plano não pode ser vazio.", parent=janela_planos)
+            messagebox.showwarning("Campo Vazio", "O nome do plano não pode ser vazio.", parent=self)
             return
         try:
             database.adicionar_plano_saude(nome)
-            entry_nome_plano.delete(0, 'end')
-            recarregar_lista_planos()
+            self.entry_nome_plano.delete(0, 'end')
+            self.recarregar_lista_planos()
         except ValueError as e:
-            messagebox.showerror("Erro", str(e), parent=janela_planos)
+            messagebox.showerror("Erro", str(e), parent=self)
         except sqlite3.Error as e:
-            messagebox.showerror("Erro de Banco de Dados", f"Não foi possível adicionar o plano: {e}", parent=janela_planos)
+            messagebox.showerror("Erro de Banco de Dados", f"Não foi possível adicionar o plano: {e}", parent=self)
 
-    ttk.Button(add_frame, text="Adicionar", command=adicionar_novo_plano).pack(side='left', padx=5)
-
-    # --- Tabela de planos existentes ---
-    tree_frame = ttk.Frame(frame)
-    tree_frame.pack(fill='both', expand=True)
-    cols = ('ID', 'Nome')
-    tree_planos = ttk.Treeview(tree_frame, columns=cols, show='headings')
-    tree_planos.heading('ID', text='ID'); tree_planos.column('ID', width=50, anchor='center')
-    tree_planos.heading('Nome', text='Nome do Plano'); tree_planos.column('Nome', width=300)
-    tree_planos.pack(side='left', fill='both', expand=True)
-    scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=tree_planos.yview)
-    tree_planos.configure(yscroll=scrollbar.set)
-    scrollbar.pack(side='right', fill='y')
-
-    def recarregar_lista_planos():
-        for i in tree_planos.get_children(): tree_planos.delete(i)
+    def recarregar_lista_planos(self):
+        """Limpa e recarrega a lista de planos de saúde."""
+        for i in self.tree_planos.get_children():
+            self.tree_planos.delete(i)
         try:
             for plano in database.listar_planos_saude():
-                tree_planos.insert("", "end", values=(plano['id'], plano['nome']))
+                self.tree_planos.insert("", "end", values=(plano['id'], plano['nome']))
         except sqlite3.Error as e:
-            messagebox.showerror("Erro", f"Erro ao carregar planos: {e}", parent=janela_planos)
+            messagebox.showerror("Erro", f"Erro ao carregar planos: {e}", parent=self)
 
-    def excluir_plano_selecionado():
-        selected_item = tree_planos.focus()
+    def _excluir_plano_selecionado(self):
+        selected_item = self.tree_planos.focus()
         if not selected_item:
-            messagebox.showwarning("Nenhuma Seleção", "Selecione um plano para excluir.", parent=janela_planos)
+            messagebox.showwarning("Nenhuma Seleção", "Selecione um plano para excluir.", parent=self)
             return
         
-        plano_id, plano_nome = tree_planos.item(selected_item)['values']
+        plano_id, plano_nome = self.tree_planos.item(selected_item)['values']
 
         # Prevenção para não excluir planos essenciais
         if plano_nome.lower() in ['particular', 'outro']:
-            messagebox.showerror("Ação Inválida", f"O plano '{plano_nome}' não pode ser excluído.", parent=janela_planos)
+            messagebox.showerror("Ação Inválida", f"O plano '{plano_nome}' não pode ser excluído.", parent=self)
             return
 
-        if messagebox.askyesno("Confirmar Exclusão", f"Tem certeza que deseja excluir o plano '{plano_nome}'?", parent=janela_planos):
+        if messagebox.askyesno("Confirmar Exclusão", f"Tem certeza que deseja excluir o plano '{plano_nome}'?", parent=self):
             try:
                 database.excluir_plano_saude(plano_id)
-                recarregar_lista_planos()
+                self.recarregar_lista_planos()
             except sqlite3.IntegrityError:
-                messagebox.showerror("Erro de Integridade", f"Não é possível excluir o plano '{plano_nome}', pois ele está sendo utilizado por um ou mais pacientes.", parent=janela_planos)
+                messagebox.showerror("Erro de Integridade", f"Não é possível excluir o plano '{plano_nome}', pois ele está sendo utilizado por um ou mais pacientes.", parent=self)
             except sqlite3.Error as e:
-                messagebox.showerror("Erro de Banco de Dados", f"Não foi possível excluir o plano: {e}", parent=janela_planos)
-
-    # --- Botão de Excluir ---
-    bottom_frame = ttk.Frame(frame)
-    bottom_frame.pack(fill='x', pady=(10, 0))
-    ttk.Button(bottom_frame, text="Excluir Plano Selecionado", command=excluir_plano_selecionado).pack(side='left')
-
-    recarregar_lista_planos()
+                messagebox.showerror("Erro de Banco de Dados", f"Não foi possível excluir o plano: {e}", parent=self)
 
 def abrir_janela_principal():
 
@@ -1906,34 +2137,6 @@ def abrir_janela_principal():
     right_frame = tk.Frame(main_content_frame)
     right_frame.pack(side='right', fill='both', expand=True)
 
-    # --- Botões de Ação (no frame da esquerda) ---
-    btn_cadastrar = tk.Button(left_frame, text="Cadastrar Paciente", font=("Helvetica", 11), command=lambda: abrir_janela_cadastro(root, None))
-    btn_cadastrar.pack(pady=5, fill='x')
-
-    # Botões visíveis apenas para o administrador
-    if USUARIO_LOGADO and USUARIO_LOGADO['nivel_acesso'] == 'admin':
-        btn_medicos = tk.Button(left_frame, text="Gerenciar Médicos", font=("Helvetica", 11), command=lambda: JanelaListaMedicos(root))
-        btn_medicos.pack(pady=5, fill='x')
-        btn_gerenciar_usuarios = tk.Button(left_frame, text="Gerenciar Usuários", font=("Helvetica", 11), command=lambda: abrir_janela_gerenciar_usuarios(root))
-        btn_gerenciar_usuarios.pack(pady=5, fill='x')
-        btn_gerenciar_planos = tk.Button(left_frame, text="Gerenciar Planos", font=("Helvetica", 11), command=lambda: abrir_janela_gerenciar_planos(root))
-        btn_gerenciar_planos.pack(pady=5, fill='x')
-        
-        # Botões de Backup e Restauração
-        btn_backup = tk.Button(left_frame, text="Backup do Sistema", font=("Helvetica", 11), command=lambda: realizar_backup(root))
-        btn_backup.pack(pady=5, fill='x')
-        btn_restore = tk.Button(left_frame, text="Restaurar Backup", font=("Helvetica", 11), command=lambda: realizar_restauracao(root))
-        btn_restore.pack(pady=5, fill='x')
-
-    btn_agenda_geral = tk.Button(left_frame, text="Agenda Geral", font=("Helvetica", 11), command=lambda: abrir_janela_agenda_geral(root))
-    btn_agenda_geral.pack(pady=5, fill='x')
-
-    btn_controle_pagamentos = tk.Button(left_frame, text="Controle de Pagamentos", font=("Helvetica", 11), command=lambda: abrir_janela_controle_pagamentos(root))
-    btn_controle_pagamentos.pack(pady=5, fill='x')
-
-    btn_financeiro = tk.Button(left_frame, text="Gestão Financeira", font=("Helvetica", 11), command=lambda: abrir_janela_fluxo_caixa(root))
-    btn_financeiro.pack(pady=5, fill='x')
-
     # --- Dashboard (no frame da direita) ---
     
     # Calendário
@@ -1955,11 +2158,7 @@ def abrir_janela_principal():
     tree_agenda.heading('terapeuta', text='Terapeuta'); tree_agenda.column('terapeuta', width=200)
     tree_agenda.pack(fill='both', expand=True)
 
-    def atualizar_dashboard():
-        """Função que atualiza todos os componentes do dashboard."""
-        atualizar_eventos_calendario(cal)
-        atualizar_agenda_do_dia()
-        messagebox.showinfo("Atualização", "Dashboard atualizado com sucesso!", parent=root)
+    # --- Funções e Botões (que dependem do calendário) ---
 
     def atualizar_eventos_calendario(calendario):
         """Busca as datas com sessões e as marca no calendário."""
@@ -1974,6 +2173,36 @@ def abrir_janela_principal():
                 calendario.calevent_create(data_obj, 'Sessão Agendada', tags='sessao_marcada')
             except (ValueError, TypeError):
                 continue # Ignora datas em formato inválido
+
+    # --- Botões de Ação (no frame da esquerda) ---
+    botoes = [
+        ("Agenda Geral", lambda: abrir_janela_agenda_geral(root)),
+        ("Cadastrar Paciente", lambda: abrir_janela_cadastro(root, lambda: atualizar_eventos_calendario(cal))),
+        ("Controle de Pagamentos", lambda: abrir_janela_controle_pagamentos(root)),
+        ("Gestão Financeira", lambda: FluxoCaixaWindow(root)),
+        ("Listar Pacientes", lambda: JanelaListaPacientes(root, lambda: atualizar_eventos_calendario(cal)))
+    ]
+
+    # Botões visíveis apenas para o administrador
+    if USUARIO_LOGADO and USUARIO_LOGADO['nivel_acesso'] == 'admin':
+        botoes.extend([
+            ("Backup do Sistema", lambda: realizar_backup(root)),
+            ("Gerenciar Médicos", lambda: JanelaListaMedicos(root)),
+            ("Gerenciar Planos", lambda: JanelaGerenciarPlanos(root)),
+            ("Gerenciar Usuários", lambda: abrir_janela_gerenciar_usuarios(root)),
+            ("Restaurar Backup", lambda: realizar_restauracao(root))
+        ])
+
+    # Ordena os botões em ordem alfabética e os exibe
+    botoes.sort(key=lambda x: x[0])
+    for texto, comando in botoes:
+        tk.Button(left_frame, text=texto, font=("Helvetica", 11), command=comando).pack(pady=5, fill='x')
+
+    def atualizar_dashboard():
+        """Função que atualiza todos os componentes do dashboard."""
+        atualizar_eventos_calendario(cal)
+        atualizar_agenda_do_dia()
+        messagebox.showinfo("Atualização", "Dashboard atualizado com sucesso!", parent=root)
 
     def atualizar_agenda_do_dia(event=None):
         """Busca e exibe as sessões para o dia selecionado no calendário."""
@@ -1990,10 +2219,6 @@ def abrir_janela_principal():
 
     # --- Binds e Carregamento Inicial ---
     cal.bind("<<CalendarSelected>>", atualizar_agenda_do_dia)
-
-    # Botão de Listar Pacientes (precisa do callback do calendário)
-    btn_listar = tk.Button(left_frame, text="Listar Pacientes", font=("Helvetica", 11), command=lambda: JanelaListaPacientes(root, lambda: atualizar_eventos_calendario(cal)))
-    btn_listar.pack(pady=5, fill='x')
 
     btn_atualizar_dash = tk.Button(left_frame, text="Atualizar Dashboard", font=("Helvetica", 11), command=atualizar_dashboard)
     btn_atualizar_dash.pack(side='bottom', pady=10, fill='x')
